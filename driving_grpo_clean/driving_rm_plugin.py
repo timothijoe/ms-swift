@@ -12,6 +12,7 @@ from swift.plugin.rm_plugin import DefaultRMPlugin
 from swift.utils import get_logger
 
 logger = get_logger()
+_DEBUG_WAIT_DONE = False
 
 
 def _load_rubric_items() -> List[Dict]:
@@ -80,10 +81,37 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
         )
 
     def __call__(self, inputs, **kwargs):
+        self._maybe_wait_for_debugger()
+        debug_mode = os.getenv('DRIVING_RM_DEBUG', '0') == '1'
+        if debug_mode:
+            logger.warning(f'[DRIVING_RM_DEBUG] plugin called. batch_size={len(inputs)}')
         rm_inputs = self._build_rm_inputs(inputs)
+        if debug_mode and rm_inputs:
+            logger.warning(f'[DRIVING_RM_DEBUG] first_rm_prompt={rm_inputs[0]["messages"][-1]["content"][:300]}')
         results = self.engine.infer(rm_inputs, self.request_config, use_tqdm=False)
         rewards = [self._extract_reward(result.choices[0].message.content) for result in results]
+        if debug_mode:
+            logger.warning(f'[DRIVING_RM_DEBUG] rewards_preview={rewards[:3]}')
         return torch.tensor(rewards, dtype=torch.float32)
+
+    @staticmethod
+    def _maybe_wait_for_debugger():
+        global _DEBUG_WAIT_DONE
+        if _DEBUG_WAIT_DONE:
+            return
+        if os.getenv('DRIVING_RM_DEBUG_WAIT', '0') != '1':
+            return
+        _DEBUG_WAIT_DONE = True
+        try:
+            import debugpy
+            host = os.getenv('DRIVING_RM_DEBUG_HOST', '127.0.0.1')
+            port = int(os.getenv('DRIVING_RM_DEBUG_PORT', '5678'))
+            debugpy.listen((host, port))
+            logger.warning(f'[DRIVING_RM_DEBUG] waiting debugger attach at {host}:{port}')
+            debugpy.wait_for_client()
+            logger.warning('[DRIVING_RM_DEBUG] debugger attached')
+        except Exception as e:
+            logger.warning(f'[DRIVING_RM_DEBUG] debug wait failed: {e}')
 
     def _build_rm_inputs(self, inputs: List[Dict]) -> List[Dict]:
         rubric_lines = '\n'.join([f'- {n}: {d} (weight={w:.3f})' for n, d, w in self.rubric])
