@@ -57,6 +57,7 @@ class DrivingManifestRLHF(SwiftRLHF):
         manifest_path = self._resolve_path(args.dataset_manifest_path)
         register_file = self._resolve_path(args.manifest_register_file)
         reward_file = self._resolve_path('driving_grpo_clean/driving_reward_funcs.py')
+        rm_plugin_file = self._resolve_path('driving_grpo_clean/driving_rm_plugin.py')
 
         if not os.path.exists(register_file):
             raise FileNotFoundError(f'manifest_register_file not found: {register_file}')
@@ -67,6 +68,15 @@ class DrivingManifestRLHF(SwiftRLHF):
         entries = register_module.register_from_manifest_path(
             manifest_path, seed=args.driving_think_seed, default_think_ratio=args.driving_think_ratio)
         import_external_file(reward_file)
+
+        # Make RM plugin loading explicit and observable in debug mode.
+        if getattr(args, 'reward_model', None):
+            rm_plugins = getattr(args, 'reward_model_plugin', None)
+            if rm_plugins and 'driving_rubric_rm' in rm_plugins:
+                if not os.path.exists(rm_plugin_file):
+                    raise FileNotFoundError(f'rm plugin file not found: {rm_plugin_file}')
+                import_external_file(rm_plugin_file)
+                print(f'[DRIVING_RM] imported rm plugin file: {rm_plugin_file}')
 
         if args.use_manifest_as_dataset:
             train_dataset = []
@@ -102,6 +112,9 @@ class DrivingManifestRLHF(SwiftRLHF):
         print(f'[DRIVING_DATASET] train={args.dataset}')
         print(f'[DRIVING_DATASET] eval={getattr(args, "val_dataset", [])}')
         print(f'[DRIVING_REWARD] reward_funcs={args.reward_funcs}')
+        print(f'[DRIVING_RM] reward_model={getattr(args, "reward_model", None)}')
+        print(f'[DRIVING_RM] reward_model_plugin={getattr(args, "reward_model_plugin", None)}')
+        print(f'[DRIVING_RM] external_plugins={getattr(args, "external_plugins", None)}')
         return super().run()
 
 
