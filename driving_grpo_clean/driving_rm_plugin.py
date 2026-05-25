@@ -136,10 +136,15 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
             request = deepcopy(infer_request)
             messages = request.get('messages', [])
             label = request.get('label', '')
+            think = request.get('think', '')
+            rm_schema = request.get('rm_schema')
+            schema_text = json.dumps(rm_schema, ensure_ascii=False) if rm_schema is not None else '无'
             prompt = (
                 '任务: 比较【模型输出】与【目标标签】的匹配程度。\n'
                 f'打分点:\n{rubric_lines}\n\n'
                 f'目标标签:\n{label}\n\n'
+                f'标准思考(可作为语义参照，不要求逐字复述):\n{think}\n\n'
+                f'场景判分约束schema(逐条参考):\n{schema_text}\n\n'
                 f'模型输出对话:\n{self._messages_to_text(messages)}\n\n'
                 '输出JSON格式:\n'
                 '{"sub_scores": {"<item_name>": 0~1}, "overall": 0~1, "reason": "..."}\n'
@@ -147,7 +152,8 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
                 '1) sub_scores 必须包含所有打分点key；\n'
                 '2) 分数必须在0到1之间；\n'
                 '3) reason 用一句话说明扣分主因；\n'
-                '4) 不要求字面一致，重点看语义是否等价。'
+                '4) 不要求字面一致，重点看语义是否等价；\n'
+                '5) 若schema提供了negative_actions且模型输出语义命中，应显著扣分。'
             )
             request['messages'] = [{'role': 'system', 'content': self.system}, {'role': 'user', 'content': prompt}]
             rm_inputs.append(request)

@@ -1,7 +1,7 @@
 [
   {
     "name": "driving_decision_no_think_train",
-    "path": "my_data/driving_sample_32.jsonl",
+    "path": "my_data/driving_sample_32_with_rm_schema.jsonl",
     "sample_num": 32,
     "preprocess_type": "driving_no_think",
     "data_type": "driving_decision",
@@ -9,7 +9,7 @@
   },
   {
     "name": "driving_decision_no_think_eval",
-    "path": "my_data/driving_sample_32.jsonl",
+    "path": "my_data/driving_sample_32_with_rm_schema.jsonl",
     "sample_num": 32,
     "preprocess_type": "driving_no_think",
     "data_type": "driving_decision",
