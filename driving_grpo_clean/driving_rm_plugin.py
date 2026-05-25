@@ -26,9 +26,16 @@ def _load_rubric_items() -> List[Dict]:
             logger.warning('Failed to parse DRIVING_RM_RUBRIC_JSON, fallback to default rubric.')
 
     return [
-        {'name': 'horizontal_decision', 'desc': '横向决策是否与目标一致', 'weight': 0.4},
-        {'name': 'vertical_decision', 'desc': '纵向决策是否与目标一致', 'weight': 0.4},
-        {'name': 'format_validity', 'desc': '输出是否为可解析JSON且字段完整', 'weight': 0.2},
+        {
+            'name': 'semantic_alignment',
+            'desc': '与目标驾驶意图的语义一致性。允许用词不同、措辞不同，只要含义一致即可高分',
+            'weight': 0.7
+        },
+        {
+            'name': 'decision_completeness',
+            'desc': '是否同时表达了横向与纵向决策意图，且不存在明显冲突',
+            'weight': 0.3
+        },
     ]
 
 
@@ -68,8 +75,8 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
         self.request_config = RequestConfig(max_tokens=256, temperature=0)
         self.rubric = _normalize_weights(_load_rubric_items())
         self.system = (
-            '你是自动驾驶决策评审器。请根据给定打分点对模型输出进行评分。'
-            '每个分项分数范围[0,1]，返回严格JSON，不要输出额外文本。'
+            '你是自动驾驶决策评审器。请根据打分点对模型输出评分。'
+            '每个分项分数范围[0,1]。你必须只输出严格JSON，禁止输出任何额外文本。'
         )
 
     def __call__(self, inputs, **kwargs):
@@ -91,7 +98,12 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
                 f'目标标签:\n{label}\n\n'
                 f'模型输出对话:\n{self._messages_to_text(messages)}\n\n'
                 '输出JSON格式:\n'
-                '{"sub_scores": {"<item_name>": 0~1}, "overall": 0~1, "reason": "..."}'
+                '{"sub_scores": {"<item_name>": 0~1}, "overall": 0~1, "reason": "..."}\n'
+                '要求:\n'
+                '1) sub_scores 必须包含所有打分点key；\n'
+                '2) 分数必须在0到1之间；\n'
+                '3) reason 用一句话说明扣分主因；\n'
+                '4) 不要求字面一致，重点看语义是否等价。'
             )
             request['messages'] = [{'role': 'system', 'content': self.system}, {'role': 'user', 'content': prompt}]
             rm_inputs.append(request)
