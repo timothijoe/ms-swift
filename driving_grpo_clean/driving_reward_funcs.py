@@ -8,6 +8,22 @@ from swift.plugin import ORM, orms
 
 HORIZONTAL_ENUM = {'向左转向', '向左快速转向', '向右转向', '向右快速转向', '左倒车', '右倒车', '直行'}
 VERTICAL_ENUM = {'加速', '急加速', '减速', '急减速', '倒车', '保持', '停车等待', '蠕行'}
+HORIZONTAL_ALIASES = {
+    '保持': '直行',
+    '左避障': '向左转向',
+    '左侧绕行': '向左转向',
+    '左绕': '向左转向',
+    '左变道': '向左转向',
+    '右变道': '向右转向',
+    '右转': '向右转向',
+}
+VERTICAL_ALIASES = {
+    '刹停': '停车等待',
+    '停车': '停车等待',
+    '让行': '减速',
+    '跟车': '保持',
+    '起步': '加速',
+}
 
 _DEBUG = os.getenv('DRIVING_REWARD_DEBUG', '0') == '1'
 _DEBUG_N = int(os.getenv('DRIVING_REWARD_DEBUG_N', '2'))
@@ -32,6 +48,21 @@ def _normalize_target(target: str) -> Optional[Dict[str, str]]:
         return json.loads(target)
     except Exception:
         return _extract_json(target)
+
+
+def _extract_decision_fields(obj: Optional[Dict[str, str]]) -> Optional[Dict[str, str]]:
+    """Support both flat format and nested answer format."""
+    if not obj or not isinstance(obj, dict):
+        return None
+    if 'answer' in obj and isinstance(obj.get('answer'), dict):
+        obj = obj['answer']
+    horizontal = obj.get('横向决策')
+    vertical = obj.get('纵向决策')
+    if horizontal is None or vertical is None:
+        return None
+    horizontal = HORIZONTAL_ALIASES.get(horizontal, horizontal)
+    vertical = VERTICAL_ALIASES.get(vertical, vertical)
+    return {'横向决策': horizontal, '纵向决策': vertical}
 
 
 def _requires_think(messages) -> bool:
@@ -114,16 +145,22 @@ class DrivingDecisionAccuracyReward(ORM):
                 rewards.append(0.0)
                 continue
 
-            horizontal = pred.get('横向决策')
-            vertical = pred.get('纵向决策')
+            pred_decision = _extract_decision_fields(pred)
+            tgt_decision = _extract_decision_fields(tgt)
+            if not pred_decision or not tgt_decision:
+                rewards.append(0.0)
+                continue
+
+            horizontal = pred_decision.get('横向决策')
+            vertical = pred_decision.get('纵向决策')
             if horizontal not in HORIZONTAL_ENUM or vertical not in VERTICAL_ENUM:
                 rewards.append(0.0)
                 continue
 
-            reward = 0.5 * ((horizontal == tgt.get('横向决策')) + (vertical == tgt.get('纵向决策')))
+            reward = 0.5 * ((horizontal == tgt_decision.get('横向决策')) + (vertical == tgt_decision.get('纵向决策')))
             rewards.append(reward)
             if _DEBUG and i < _DEBUG_N:
-                print(f'[DRIVING_REWARD] accuracy dtype={dtype} reward={reward} pred={pred} tgt={tgt}')
+                print(f'[DRIVING_REWARD] accuracy dtype={dtype} reward={reward} pred={pred_decision} tgt={tgt_decision}')
         return rewards
 
 

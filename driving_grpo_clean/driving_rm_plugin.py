@@ -37,14 +37,14 @@ def _load_rubric_items() -> List[Dict]:
 
     return [
         {
-            'name': 'semantic_alignment',
-            'desc': '与目标驾驶意图的语义一致性。允许用词不同、措辞不同，只要含义一致即可高分',
-            'weight': 0.7
+            'name': 'think_semantic_alignment',
+            'desc': '模型think与标准think在风险识别和动作依据上的语义一致性',
+            'weight': 0.8
         },
         {
-            'name': 'decision_completeness',
-            'desc': '是否同时表达了横向与纵向决策意图，且不存在明显冲突',
-            'weight': 0.3
+            'name': 'think_conciseness',
+            'desc': 'think是否简洁且聚焦关键约束',
+            'weight': 0.2
         },
     ]
 
@@ -65,6 +65,25 @@ def _normalize_weights(items: List[Dict]) -> List[Tuple[str, str, float]]:
     if total <= 0:
         return [(name, desc, 1.0 / len(values)) for name, desc, _ in values]
     return [(name, desc, weight / total) for name, desc, weight in values]
+
+
+def _safe_json_obj(text: str):
+    if not text:
+        return None
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
+    match = re.search(r'\{.*\}', text, flags=re.DOTALL)
+    if not match:
+        return None
+    try:
+        obj = json.loads(match.group(0))
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        return None
 
 
 class DrivingRubricRMPlugin(DefaultRMPlugin):
@@ -136,14 +155,17 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
             request = deepcopy(infer_request)
             messages = request.get('messages', [])
             label = request.get('label', '')
-            think = request.get('think', '')
+            label_obj = _safe_json_obj(label) if isinstance(label, str) else (label if isinstance(label, dict) else None)
+            label_think = label_obj.get('think', '') if isinstance(label_obj, dict) else ''
+            label_answer = label_obj.get('answer', {}) if isinstance(label_obj, dict) else {}
+            think = request.get('think', '') or label_think
             rm_schema = request.get('rm_schema')
             schema_text = json.dumps(rm_schema, ensure_ascii=False) if rm_schema is not None else '无'
             prompt = (
-                '任务: 比较【模型输出】与【目标标签】的匹配程度。\n'
+                '任务: 重点比较【模型输出中的think】与【标准think】的一致性。\n'
                 f'打分点:\n{rubric_lines}\n\n'
-                f'目标标签:\n{label}\n\n'
-                f'标准思考(可作为语义参照，不要求逐字复述):\n{think}\n\n'
+                f'目标answer:\n{json.dumps(label_answer, ensure_ascii=False)}\n\n'
+                f'标准think(语义真值):\n{think}\n\n'
                 f'场景判分约束schema(逐条参考):\n{schema_text}\n\n'
                 f'模型输出对话:\n{self._messages_to_text(messages)}\n\n'
                 '输出JSON格式:\n'
@@ -152,8 +174,8 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
                 '1) sub_scores 必须包含所有打分点key；\n'
                 '2) 分数必须在0到1之间；\n'
                 '3) reason 用一句话说明扣分主因；\n'
-                '4) 不要求字面一致，重点看语义是否等价；\n'
-                '5) 若schema提供了negative_actions且模型输出语义命中，应显著扣分。'
+                '4) 不要求字面一致，重点看think语义是否等价；\n'
+                '5) 若模型缺少有效think，应显著扣分。'
             )
             request['messages'] = [{'role': 'system', 'content': self.system}, {'role': 'user', 'content': prompt}]
             rm_inputs.append(request)

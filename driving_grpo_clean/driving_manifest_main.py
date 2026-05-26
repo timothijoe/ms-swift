@@ -99,10 +99,14 @@ class DrivingManifestRLHF(SwiftRLHF):
             args.dataset = [args.dataset_name]
 
         if not args.reward_funcs:
-            args.reward_funcs = (
-                ['driving_mixed_format', 'driving_decision_accuracy']
-                if args.reward_mode == 'mixed'
-                else ['driving_no_think_format', 'driving_decision_accuracy'])
+            # In RM-only mode we keep reward_funcs empty and rely on reward_model.
+            if getattr(args, 'reward_model', None):
+                args.reward_funcs = []
+            else:
+                args.reward_funcs = (
+                    ['driving_mixed_format', 'driving_decision_accuracy']
+                    if args.reward_mode == 'mixed'
+                    else ['driving_no_think_format', 'driving_decision_accuracy'])
 
         if hasattr(args, 'training_args') and args.training_args is not None:
             setattr(args.training_args, 'inject_gt_on_all_wrong', args.inject_gt_on_all_wrong)
