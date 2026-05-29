@@ -86,6 +86,21 @@ def _safe_json_obj(text: str):
         return None
 
 
+def _extract_think_and_answer_from_label(label_text: str):
+    """Parse label in format: <think>...</think>\\n{...json...}."""
+    think = ''
+    answer = {}
+    if not isinstance(label_text, str):
+        return think, answer
+    match = re.search(r'<think>(.*?)</think>', label_text, flags=re.DOTALL)
+    if match:
+        think = match.group(1).strip()
+    obj = _safe_json_obj(label_text)
+    if isinstance(obj, dict):
+        answer = obj.get('answer', obj)
+    return think, answer if isinstance(answer, dict) else {}
+
+
 class DrivingRubricRMPlugin(DefaultRMPlugin):
     """
     Generative RM plugin for driving imitation-style rubric scoring.
@@ -158,6 +173,10 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
             label_obj = _safe_json_obj(label) if isinstance(label, str) else (label if isinstance(label, dict) else None)
             label_think = label_obj.get('think', '') if isinstance(label_obj, dict) else ''
             label_answer = label_obj.get('answer', {}) if isinstance(label_obj, dict) else {}
+            if not label_think and isinstance(label, str):
+                parsed_think, parsed_answer = _extract_think_and_answer_from_label(label)
+                label_think = parsed_think or label_think
+                label_answer = parsed_answer or label_answer
             think = request.get('think', '') or label_think
             rm_schema = request.get('rm_schema')
             schema_text = json.dumps(rm_schema, ensure_ascii=False) if rm_schema is not None else '无'
