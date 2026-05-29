@@ -101,6 +101,22 @@ def _extract_think_and_answer_from_label(label_text: str):
     return think, answer if isinstance(answer, dict) else {}
 
 
+def _extract_pred_think_and_answer(messages: List[Dict]):
+    """Extract predicted think/answer from generated assistant content."""
+    if not messages or not isinstance(messages, list):
+        return '', {}
+    content = messages[-1].get('content', '')
+    if not isinstance(content, str):
+        return '', {}
+    match = re.search(r'<think>(.*?)</think>', content, flags=re.DOTALL)
+    pred_think = match.group(1).strip() if match else ''
+    obj = _safe_json_obj(content)
+    pred_answer = obj.get('answer', obj) if isinstance(obj, dict) else {}
+    if not isinstance(pred_answer, dict):
+        pred_answer = {}
+    return pred_think, pred_answer
+
+
 class DrivingRubricRMPlugin(DefaultRMPlugin):
     """
     Generative RM plugin for driving imitation-style rubric scoring.
@@ -178,13 +194,17 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
                 label_think = parsed_think or label_think
                 label_answer = parsed_answer or label_answer
             think = request.get('think', '') or label_think
+            gt_answer = request.get('gt_answer', {}) or label_answer
+            pred_think, pred_answer = _extract_pred_think_and_answer(messages)
             rm_schema = request.get('rm_schema')
             schema_text = json.dumps(rm_schema, ensure_ascii=False) if rm_schema is not None else '无'
             prompt = (
                 '任务: 重点比较【模型输出中的think】与【标准think】的一致性。\n'
                 f'打分点:\n{rubric_lines}\n\n'
-                f'目标answer:\n{json.dumps(label_answer, ensure_ascii=False)}\n\n'
+                f'目标answer:\n{json.dumps(gt_answer, ensure_ascii=False)}\n\n'
                 f'标准think(语义真值):\n{think}\n\n'
+                f'模型预测think:\n{pred_think}\n\n'
+                f'模型预测answer:\n{json.dumps(pred_answer, ensure_ascii=False)}\n\n'
                 f'场景判分约束schema(逐条参考):\n{schema_text}\n\n'
                 f'模型输出对话:\n{self._messages_to_text(messages)}\n\n'
                 '输出JSON格式:\n'

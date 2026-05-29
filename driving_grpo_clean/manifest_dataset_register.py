@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -38,6 +39,26 @@ def _remap_media_path(value):
     if isinstance(value, list):
         return [_remap_media_path(item) for item in value]
     return value
+
+
+def _extract_think_from_assistant(text: str) -> str:
+    if not isinstance(text, str):
+        return ''
+    match = re.search(r'<think>(.*?)</think>', text, flags=re.DOTALL)
+    return match.group(1).strip() if match else ''
+
+
+def _extract_json_from_assistant(text: str) -> Dict[str, Any]:
+    if not isinstance(text, str):
+        return {}
+    match = re.search(r'\{.*\}', text, flags=re.DOTALL)
+    if not match:
+        return {}
+    try:
+        obj = json.loads(match.group(0))
+        return obj if isinstance(obj, dict) else {}
+    except Exception:
+        return {}
 
 
 @dataclass
@@ -94,11 +115,17 @@ class DrivingDecisionNoThinkPreprocessor(RowPreprocessor):
         messages = row.get('messages')
         if not messages or not isinstance(messages, list) or messages[-1].get('role') != 'assistant':
             return
-        label = messages[-1].get('content')
-        if label is None:
+        assistant_content = messages[-1].get('content')
+        if assistant_content is None:
             return
+        gt_think = _extract_think_from_assistant(assistant_content)
+        gt_answer = _extract_json_from_assistant(assistant_content)
         row['messages'] = messages[:-1]
-        row['label'] = label
+        row['label_raw'] = assistant_content
+        row['gt_think'] = gt_think
+        row['gt_answer'] = gt_answer
+        # Unified label format consumed by reward logic.
+        row['label'] = json.dumps({'think': gt_think, 'answer': gt_answer}, ensure_ascii=False)
         row['data_type'] = row.get('data_type') or self.data_type
         if 'images' in row:
             row['images'] = _remap_media_path(row['images'])
@@ -126,16 +153,21 @@ class DrivingDecisionMixedPreprocessor(RowPreprocessor):
         messages = row.get('messages')
         if not messages or not isinstance(messages, list) or messages[-1].get('role') != 'assistant':
             return
-        label = messages[-1].get('content')
-        if label is None:
+        assistant_content = messages[-1].get('content')
+        if assistant_content is None:
             return
+        gt_think = _extract_think_from_assistant(assistant_content)
+        gt_answer = _extract_json_from_assistant(assistant_content)
 
         prompt_messages = messages[:-1]
         if self.think_ratio > 0 and self.random.random() < self.think_ratio:
             prompt_messages = self._inject_think(prompt_messages)
 
         row['messages'] = prompt_messages
-        row['label'] = label
+        row['label_raw'] = assistant_content
+        row['gt_think'] = gt_think
+        row['gt_answer'] = gt_answer
+        row['label'] = json.dumps({'think': gt_think, 'answer': gt_answer}, ensure_ascii=False)
         row['data_type'] = row.get('data_type') or self.data_type
         if 'images' in row:
             row['images'] = _remap_media_path(row['images'])

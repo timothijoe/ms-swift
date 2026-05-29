@@ -143,8 +143,8 @@ class DrivingDecisionAccuracyReward(ORM):
     def __init__(self, supported_data_types: Optional[List[str]] = None):
         self.supported_data_types = supported_data_types or ['driving_decision']
 
-    def __call__(self, completions, label=None, data_type=None, **kwargs) -> List[Optional[float]]:
-        targets = _as_list(label, len(completions))
+    def __call__(self, completions, label=None, gt_answer=None, data_type=None, **kwargs) -> List[Optional[float]]:
+        targets = _as_list(gt_answer if gt_answer is not None else label, len(completions))
         dtypes = _as_list(data_type, len(completions))
         rewards = []
         for i, (completion, target, dtype) in enumerate(zip(completions, targets, dtypes)):
@@ -154,7 +154,7 @@ class DrivingDecisionAccuracyReward(ORM):
                 continue
 
             pred = _extract_json(completion)
-            tgt = _normalize_target(target)
+            tgt = target if isinstance(target, dict) else _normalize_target(target)
             if not pred or not tgt:
                 rewards.append(0.0)
                 continue
