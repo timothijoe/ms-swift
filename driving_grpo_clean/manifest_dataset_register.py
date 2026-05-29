@@ -113,15 +113,26 @@ class DrivingDecisionNoThinkPreprocessor(RowPreprocessor):
 
     def preprocess(self, row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         messages = row.get('messages')
-        if not messages or not isinstance(messages, list) or messages[-1].get('role') != 'assistant':
+        if not messages or not isinstance(messages, list):
             return
-        assistant_content = messages[-1].get('content')
-        if assistant_content is None:
-            return
-        gt_think = _extract_think_from_assistant(assistant_content)
-        gt_answer = _extract_json_from_assistant(assistant_content)
-        row['messages'] = messages[:-1]
-        row['label_raw'] = assistant_content
+        # Format A (legacy): messages[-1] is assistant with <think> + decision json.
+        # Format B (new): messages only contain system/user, and think/rm_schema are top-level fields.
+        if messages[-1].get('role') == 'assistant':
+            assistant_content = messages[-1].get('content')
+            if assistant_content is None:
+                return
+            gt_think = _extract_think_from_assistant(assistant_content)
+            gt_answer = _extract_json_from_assistant(assistant_content)
+            row['messages'] = messages[:-1]
+            row['label_raw'] = assistant_content
+        else:
+            gt_think = str(row.get('think', '') or '')
+            gt_answer = row.get('answer', {})
+            if not isinstance(gt_answer, dict):
+                gt_answer = {}
+            row['messages'] = messages
+            row['label_raw'] = ''
+
         row['gt_think'] = gt_think
         row['gt_answer'] = gt_answer
         # Unified label format consumed by reward logic.
@@ -151,20 +162,28 @@ class DrivingDecisionMixedPreprocessor(RowPreprocessor):
 
     def preprocess(self, row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         messages = row.get('messages')
-        if not messages or not isinstance(messages, list) or messages[-1].get('role') != 'assistant':
+        if not messages or not isinstance(messages, list):
             return
-        assistant_content = messages[-1].get('content')
-        if assistant_content is None:
-            return
-        gt_think = _extract_think_from_assistant(assistant_content)
-        gt_answer = _extract_json_from_assistant(assistant_content)
+        if messages[-1].get('role') == 'assistant':
+            assistant_content = messages[-1].get('content')
+            if assistant_content is None:
+                return
+            gt_think = _extract_think_from_assistant(assistant_content)
+            gt_answer = _extract_json_from_assistant(assistant_content)
+            prompt_messages = messages[:-1]
+            row['label_raw'] = assistant_content
+        else:
+            gt_think = str(row.get('think', '') or '')
+            gt_answer = row.get('answer', {})
+            if not isinstance(gt_answer, dict):
+                gt_answer = {}
+            prompt_messages = messages
+            row['label_raw'] = ''
 
-        prompt_messages = messages[:-1]
         if self.think_ratio > 0 and self.random.random() < self.think_ratio:
             prompt_messages = self._inject_think(prompt_messages)
 
         row['messages'] = prompt_messages
-        row['label_raw'] = assistant_content
         row['gt_think'] = gt_think
         row['gt_answer'] = gt_answer
         row['label'] = json.dumps({'think': gt_think, 'answer': gt_answer}, ensure_ascii=False)

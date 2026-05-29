@@ -16,7 +16,7 @@ fi
 cd "${PROJECT_ROOT}"
 
 "${PYTHON_BIN}" "${SCRIPT_DIR}/driving_manifest_main.py" \
-  --dataset_manifest_path "${SCRIPT_DIR}/datasets_manifest_video_style_32_template_v3.json" \
+  --dataset_manifest_path "${SCRIPT_DIR}/datasets_manifest_video_style_32_template_v5_with_assistant.json" \
   --manifest_register_file "${SCRIPT_DIR}/manifest_dataset_register.py" \
   --use_manifest_as_dataset true \
   --external_plugins "${SCRIPT_DIR}/driving_rm_plugin.py" \
