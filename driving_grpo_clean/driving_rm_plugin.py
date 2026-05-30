@@ -1,8 +1,9 @@
 import json
 import os
 import re
+import random
 from copy import deepcopy
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import torch
 
@@ -86,6 +87,87 @@ def _safe_json_obj(text: str):
         return None
 
 
+def _plugin_dir() -> str:
+    return os.path.abspath(os.path.dirname(__file__))
+
+
+def _default_template_store() -> Dict:
+    return {
+        'default_group': 'default',
+        'scene_type_to_group': {
+            'blocked_lane_with_oncoming': 'interaction_risk',
+            'traffic_signal_stop': 'traffic_signal',
+        },
+        'groups': {
+            'default': [{
+                'name': 'default_v1',
+                'system_prompt': '你是自动驾驶决策评审器。请根据打分点对模型输出评分。每个分项分数范围[0,1]。你必须只输出严格JSON，禁止输出任何额外文本。',
+                'user_prompt_template': '任务: 重点比较【模型输出中的think】与【标准think】的一致性。\\n打分点:\\n{rubric_lines}\\n\\n目标answer:\\n{gt_answer}\\n\\n标准think(语义真值):\\n{gt_think}\\n\\n模型预测think:\\n{pred_think}\\n\\n模型预测answer:\\n{pred_answer}\\n\\n场景判分约束schema(逐条参考):\\n{schema_text}\\n\\n模型输出对话:\\n{message_text}\\n\\n输出JSON格式:\\n{\\\"sub_scores\\\": {\\\"<item_name>\\\": 0~1}, \\\"overall\\\": 0~1, \\\"reason\\\": \\\"...\\\"}'
+            }],
+            'interaction_risk': [{
+                'name': 'interaction_risk_v1',
+                'system_prompt': '你是交互风险驾驶决策评审器。只返回JSON分数。',
+                'user_prompt_template': '请重点评估think中是否覆盖交互风险识别、让行/避让依据以及动作约束。\\n打分点:\\n{rubric_lines}\\n\\n标准think:\\n{gt_think}\\n\\n模型think:\\n{pred_think}\\n\\n场景schema:\\n{schema_text}\\n\\n参考answer:\\nGT={gt_answer}\\nPRED={pred_answer}\\n\\n返回JSON: {\\\"sub_scores\\\": {\\\"<item_name>\\\": 0~1}, \\\"overall\\\": 0~1, \\\"reason\\\": \\\"...\\\"}'
+            }],
+            'traffic_signal': [{
+                'name': 'traffic_signal_v1',
+                'system_prompt': '你是交通信号场景评审器。只输出JSON。',
+                'user_prompt_template': '请评估think是否准确使用了信号灯/交警约束并给出正确动作依据。\\n打分点:\\n{rubric_lines}\\n\\n标准think:\\n{gt_think}\\n\\n模型think:\\n{pred_think}\\n\\n场景schema:\\n{schema_text}\\n\\nGT answer={gt_answer}\\nPRED answer={pred_answer}\\n\\n返回JSON: {\\\"sub_scores\\\": {\\\"<item_name>\\\": 0~1}, \\\"overall\\\": 0~1, \\\"reason\\\": \\\"...\\\"}'
+            }]
+        }
+    }
+
+
+def _load_template_store() -> Dict:
+    """Load ONE template file. Fallback to built-in defaults when missing/invalid."""
+    template_file = os.getenv('DRIVING_RM_TEMPLATES_FILE',
+                              os.path.join(_plugin_dir(), 'rm_templates.json'))
+    default_store = _default_template_store()
+    if not os.path.exists(template_file):
+        logger.warning(f'Template file not found: {template_file}. Using built-in defaults.')
+        return default_store
+
+
+def _load_prefix_store() -> Dict:
+    """Load short prefix blocks by type. Fallback to {'default': ...}."""
+    prefix_file = os.getenv('DRIVING_RM_PREFIX_FILE',
+                            os.path.join(_plugin_dir(), 'rm_templates_prefix.json'))
+    default_store = {
+        'default': {
+            'system_prompt_prefix': '你是自动驾驶语义评分器。仅输出JSON评分结果。',
+            'instruction_prefix': '请根据标准 rm_schema 和候选回答 candidate，输出结构化语义评分。',
+            'few_shot_prefix': ''
+        }
+    }
+    if not os.path.exists(prefix_file):
+        logger.warning(f'Prefix file not found: {prefix_file}. Using built-in defaults.')
+        return default_store
+    try:
+        data = json.load(open(prefix_file, 'r', encoding='utf-8'))
+        if not isinstance(data, dict):
+            logger.warning(f'Invalid prefix file format: {prefix_file}. Using built-in defaults.')
+            return default_store
+        merged = dict(default_store)
+        merged.update(data)
+        return merged
+    except Exception as e:
+        logger.warning(f'Failed to load prefix file {prefix_file}: {e}. Using built-in defaults.')
+        return default_store
+    try:
+        with open(template_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            logger.warning(f'Invalid template file format: {template_file}. Using built-in defaults.')
+            return default_store
+        # shallow merge with defaults for safety
+        merged = dict(default_store)
+        merged.update({k: v for k, v in data.items() if k in {'default_group', 'scene_type_to_group', 'groups'}})
+        return merged
+    except Exception as e:
+        logger.warning(f'Failed to load template file {template_file}: {e}. Using built-in defaults.')
+        return default_store
+
+
 def _extract_think_and_answer_from_label(label_text: str):
     """Parse label in format: <think>...</think>\\n{...json...}."""
     think = ''
@@ -117,6 +199,16 @@ def _extract_pred_think_and_answer(messages: List[Dict]):
     return pred_think, pred_answer
 
 
+def _compact_prompt_text(text: str) -> str:
+    if not isinstance(text, str):
+        return text
+    # collapse 3+ blank lines -> 2 blank lines
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    # trim trailing spaces per line
+    text = '\n'.join([line.rstrip() for line in text.splitlines()])
+    return text.strip()
+
+
 class DrivingRubricRMPlugin(DefaultRMPlugin):
     """
     Generative RM plugin for driving imitation-style rubric scoring.
@@ -138,6 +230,10 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
             '你是自动驾驶决策评审器。请根据打分点对模型输出评分。'
             '每个分项分数范围[0,1]。你必须只输出严格JSON，禁止输出任何额外文本。'
         )
+        self.prefix_store = _load_prefix_store()
+        self.template_store = _load_template_store()
+        self.template_seed = int(os.getenv('DRIVING_RM_TEMPLATE_SEED', '42'))
+        self.template_rng = random.Random(self.template_seed)
         logger.warning('[DRIVING_RM_DEBUG] DrivingRubricRMPlugin initialized')
         _append_debug_file('[init] DrivingRubricRMPlugin initialized')
 
@@ -196,29 +292,208 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
             think = request.get('think', '') or label_think
             gt_answer = request.get('gt_answer', {}) or label_answer
             pred_think, pred_answer = _extract_pred_think_and_answer(messages)
+            candidate_text = messages[-1].get('content', '') if messages else ''
             rm_schema = request.get('rm_schema')
             schema_text = json.dumps(rm_schema, ensure_ascii=False) if rm_schema is not None else '无'
-            prompt = (
-                '任务: 重点比较【模型输出中的think】与【标准think】的一致性。\n'
-                f'打分点:\n{rubric_lines}\n\n'
-                f'目标answer:\n{json.dumps(gt_answer, ensure_ascii=False)}\n\n'
-                f'标准think(语义真值):\n{think}\n\n'
-                f'模型预测think:\n{pred_think}\n\n'
-                f'模型预测answer:\n{json.dumps(pred_answer, ensure_ascii=False)}\n\n'
-                f'场景判分约束schema(逐条参考):\n{schema_text}\n\n'
-                f'模型输出对话:\n{self._messages_to_text(messages)}\n\n'
-                '输出JSON格式:\n'
-                '{"sub_scores": {"<item_name>": 0~1}, "overall": 0~1, "reason": "..."}\n'
-                '要求:\n'
-                '1) sub_scores 必须包含所有打分点key；\n'
-                '2) 分数必须在0到1之间；\n'
-                '3) reason 用一句话说明扣分主因；\n'
-                '4) 不要求字面一致，重点看think语义是否等价；\n'
-                '5) 若模型缺少有效think，应显著扣分。'
-            )
-            request['messages'] = [{'role': 'system', 'content': self.system}, {'role': 'user', 'content': prompt}]
+            template_type, prefix = self._select_prefix(rm_schema)
+            prompt = self._render_prefix_prompt(
+                prefix=prefix,
+                rubric_lines=rubric_lines,
+                gt_answer=gt_answer,
+                gt_think=think,
+                pred_think=pred_think,
+                pred_answer=pred_answer,
+                schema_text=schema_text,
+                candidate_text=candidate_text,
+                message_text=self._messages_to_text(messages))
+
+            # Keep legacy template route as fallback only when prefix is empty.
+            if not prompt.strip():
+                template = self._select_template(rm_schema)
+                prompt = self._render_template(
+                    template=template,
+                    rubric_lines=rubric_lines,
+                    gt_answer=gt_answer,
+                    gt_think=think,
+                    pred_think=pred_think,
+                    pred_answer=pred_answer,
+                    schema_text=schema_text,
+                    message_text=self._messages_to_text(messages))
+                system_prompt = template.get('system_prompt') if isinstance(template, dict) else None
+            else:
+                system_prompt = prefix.get('system_prompt_prefix')
+            if os.getenv('DRIVING_RM_DEBUG', '0') == '1':
+                logger.warning(f'[DRIVING_RM_DEBUG] template_type={template_type}')
+            request['messages'] = [{
+                'role': 'system',
+                'content': system_prompt or self.system
+            }, {
+                'role': 'user',
+                'content': prompt
+            }]
             rm_inputs.append(request)
         return rm_inputs
+
+    def _select_prefix(self, rm_schema: Optional[Dict]) -> Tuple[str, Dict]:
+        if not isinstance(rm_schema, dict):
+            return 'default', self.prefix_store.get('default', {})
+        t = str(rm_schema.get('template_type', '') or rm_schema.get('type', '')).strip()
+        if not t:
+            t = 'default'
+        prefix = self.prefix_store.get(t) or self.prefix_store.get('default', {})
+        return t, prefix
+
+    @staticmethod
+    def _render_prefix_prompt(prefix: Dict,
+                              *,
+                              rubric_lines: str,
+                              gt_answer: Dict,
+                              gt_think: str,
+                              pred_think: str,
+                              pred_answer: Dict,
+                              schema_text: str,
+                              candidate_text: str,
+                              message_text: str) -> str:
+        if not isinstance(prefix, dict):
+            return ''
+        instruction = str(prefix.get('instruction_prefix', '') or '')
+        few_shot = str(prefix.get('few_shot_prefix', '') or '')
+        if not instruction and not few_shot:
+            return ''
+        content = '\n'.join([
+            instruction,
+            few_shot,
+            '',
+            '【待评分输入】',
+            f'标准JSON:\n{schema_text}',
+            '',
+            '【候选回答】',
+            candidate_text or message_text,
+            '',
+            '【补充上下文】',
+            f'打分点:\n{rubric_lines}',
+            f'标准think:\n{gt_think}',
+            f'模型think:\n{pred_think}',
+            f'标准answer:\n{json.dumps(gt_answer, ensure_ascii=False)}',
+            f'模型answer:\n{json.dumps(pred_answer, ensure_ascii=False)}',
+            '',
+            '请严格只输出JSON。'
+        ])
+        if os.getenv('DRIVING_RM_COMPACT_PROMPT', '1') == '1':
+            content = _compact_prompt_text(content)
+        return content
+
+    def _select_template(self, rm_schema: Optional[Dict]) -> Dict:
+        scene_type = ''
+        if isinstance(rm_schema, dict):
+            scene_type = str(rm_schema.get('scene_type', '')).strip()
+        scene_map = self.template_store.get('scene_type_to_group', {}) or {}
+        group = scene_map.get(scene_type, self.template_store.get('default_group', 'default'))
+        groups = self.template_store.get('groups', {}) or {}
+        templates = groups.get(group) or groups.get('default') or []
+        if not templates:
+            return {}
+        # deterministic but varied
+        return self.template_rng.choice(templates)
+
+    @staticmethod
+    def _render_template(template: Dict,
+                         *,
+                         rubric_lines: str,
+                         gt_answer: Dict,
+                         gt_think: str,
+                         pred_think: str,
+                         pred_answer: Dict,
+                         schema_text: str,
+                         message_text: str) -> str:
+        prompt_tpl = None if not isinstance(template, dict) else template.get('user_prompt_template')
+        context = {
+            'rubric_lines': rubric_lines,
+            'gt_answer': json.dumps(gt_answer, ensure_ascii=False),
+            'gt_think': gt_think,
+            'pred_think': pred_think,
+            'pred_answer': json.dumps(pred_answer, ensure_ascii=False),
+            'schema_text': schema_text,
+            'message_text': message_text,
+            'candidate_text': message_text,
+            'rm_schema_json': schema_text,
+        }
+        # New structured template format:
+        # {instruction_prefix, few_shots, output_format, footer}
+        if isinstance(template, dict) and any(k in template for k in ('instruction_prefix', 'few_shots', 'output_format')):
+            blocks = []
+            instruction_prefix = template.get('instruction_prefix', '')
+            if instruction_prefix:
+                rendered_prefix = str(instruction_prefix)
+                # support explicit placeholders in large raw templates
+                rendered_prefix = rendered_prefix.replace('{RM_SCHEMA}', context['rm_schema_json'])
+                rendered_prefix = rendered_prefix.replace('{CANDIDATE}', context['candidate_text'])
+                # keep backward compatibility with python format placeholders
+                try:
+                    rendered_prefix = rendered_prefix.format(**context)
+                except Exception:
+                    pass
+                blocks.append(rendered_prefix)
+            few_shots = template.get('few_shots', [])
+            if isinstance(few_shots, list):
+                for idx, fs in enumerate(few_shots, start=1):
+                    if not isinstance(fs, dict):
+                        continue
+                    blocks.append(f'【Few-shot {idx}】')
+                    if fs.get('schema'):
+                        blocks.append('标准JSON:')
+                        blocks.append(json.dumps(fs['schema'], ensure_ascii=False))
+                    if fs.get('candidate'):
+                        blocks.append(f'候选回答: {fs["candidate"]}')
+                    if fs.get('output'):
+                        blocks.append(f'输出: {json.dumps(fs["output"], ensure_ascii=False)}')
+            output_format = template.get('output_format')
+            if output_format:
+                blocks.append('【最终输出格式】')
+                blocks.append(str(output_format))
+            footer = template.get('footer', '')
+            if footer:
+                blocks.append(str(footer).format(**context))
+            full_text = '\n'.join(blocks)
+            # If the large template already embeds placeholders, do not append duplicated blocks.
+            if ('{RM_SCHEMA}' not in str(instruction_prefix)) and ('{CANDIDATE}' not in str(instruction_prefix)):
+                blocks.append('【待评分输入】')
+                blocks.append(context['rm_schema_json'])
+                blocks.append('【候选回答】')
+                blocks.append(context['candidate_text'])
+                full_text = '\n'.join(blocks)
+            if os.getenv('DRIVING_RM_COMPACT_PROMPT', '1') == '1':
+                full_text = _compact_prompt_text(full_text)
+            return full_text
+
+        if prompt_tpl and isinstance(prompt_tpl, str):
+            try:
+                rendered = prompt_tpl.format(**context)
+                if os.getenv('DRIVING_RM_COMPACT_PROMPT', '1') == '1':
+                    rendered = _compact_prompt_text(rendered)
+                return rendered
+            except Exception:
+                pass
+        fallback = (
+            '任务: 重点比较【模型输出中的think】与【标准think】的一致性。\n'
+            f'打分点:\n{rubric_lines}\n\n'
+            f'目标answer:\n{context["gt_answer"]}\n\n'
+            f'标准think(语义真值):\n{gt_think}\n\n'
+            f'模型预测think:\n{pred_think}\n\n'
+            f'模型预测answer:\n{context["pred_answer"]}\n\n'
+            f'场景判分约束schema(逐条参考):\n{schema_text}\n\n'
+            f'模型输出对话:\n{message_text}\n\n'
+            '输出JSON格式:\n'
+            '{"sub_scores": {"<item_name>": 0~1}, "overall": 0~1, "reason": "..."}\n'
+            '要求:\n'
+            '1) sub_scores 必须包含所有打分点key；\n'
+            '2) 分数必须在0到1之间；\n'
+            '3) reason 用一句话说明扣分主因；\n'
+            '4) 不要求字面一致，重点看think语义是否等价；\n'
+            '5) 若模型缺少有效think，应显著扣分。')
+        if os.getenv('DRIVING_RM_COMPACT_PROMPT', '1') == '1':
+            fallback = _compact_prompt_text(fallback)
+        return fallback
 
     @staticmethod
     def _messages_to_text(messages: List[Dict]) -> str:

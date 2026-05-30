@@ -1,0 +1,9 @@
+{
+  "templates": [
+    {
+      "name": "interaction_risk_v1",
+      "system_prompt": "你是交互风险驾驶决策评审器。只返回JSON分数。",
+      "user_prompt_template": "请重点评估think中是否覆盖交互风险识别、让行/避让依据以及动作约束。\n打分点:\n{rubric_lines}\n\n标准think:\n{gt_think}\n\n模型think:\n{pred_think}\n\n场景schema:\n{schema_text}\n\n参考answer:\nGT={gt_answer}\nPRED={pred_answer}\n\n返回JSON: {\"sub_scores\": {\"<item_name>\": 0~1}, \"overall\": 0~1, \"reason\": \"...\"}"
+    }
+  ]
+}
