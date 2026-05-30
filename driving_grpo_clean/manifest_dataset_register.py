@@ -61,6 +61,20 @@ def _extract_json_from_assistant(text: str) -> Dict[str, Any]:
         return {}
 
 
+def _detach_rm_template_type(row: Dict[str, Any]) -> None:
+    """Keep template routing out of rm_schema to avoid affecting RM scoring input."""
+    if row.get('rm_template_type'):
+        return
+    rm_schema = row.get('rm_schema')
+    if not isinstance(rm_schema, dict):
+        return
+    t = rm_schema.pop('template_type', None)
+    if t is None:
+        t = rm_schema.pop('type', None)
+    if t is not None:
+        row['rm_template_type'] = str(t).strip() or 'default'
+
+
 @dataclass
 class ManifestEntry:
     name: str
@@ -112,6 +126,7 @@ class DrivingDecisionNoThinkPreprocessor(RowPreprocessor):
         self.data_type = data_type
 
     def preprocess(self, row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        _detach_rm_template_type(row)
         messages = row.get('messages')
         if not messages or not isinstance(messages, list):
             return
@@ -161,6 +176,7 @@ class DrivingDecisionMixedPreprocessor(RowPreprocessor):
         return [{'role': 'system', 'content': THINK_INSTRUCTION}] + [dict(message) for message in messages]
 
     def preprocess(self, row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        _detach_rm_template_type(row)
         messages = row.get('messages')
         if not messages or not isinstance(messages, list):
             return

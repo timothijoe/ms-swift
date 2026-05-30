@@ -13,16 +13,6 @@ from swift.plugin.rm_plugin import DefaultRMPlugin
 from swift.utils import get_logger
 
 logger = get_logger()
-_DEBUG_WAIT_DONE = False
-
-
-def _append_debug_file(msg: str):
-    path = os.getenv('DRIVING_RM_DEBUG_FILE', '/tmp/driving_rm_debug.log')
-    try:
-        with open(path, 'a', encoding='utf-8') as f:
-            f.write(msg + '\n')
-    except Exception:
-        pass
 
 
 def _load_rubric_items() -> List[Dict]:
@@ -234,46 +224,12 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
         self.template_store = _load_template_store()
         self.template_seed = int(os.getenv('DRIVING_RM_TEMPLATE_SEED', '42'))
         self.template_rng = random.Random(self.template_seed)
-        logger.warning('[DRIVING_RM_DEBUG] DrivingRubricRMPlugin initialized')
-        _append_debug_file('[init] DrivingRubricRMPlugin initialized')
 
     def __call__(self, inputs, **kwargs):
-        self._maybe_wait_for_debugger()
-        debug_mode = os.getenv('DRIVING_RM_DEBUG', '0') == '1'
-        if os.getenv('DRIVING_RM_DEBUG_FORCE_FAIL', '0') == '1':
-            raise RuntimeError('DRIVING_RM_DEBUG_FORCE_FAIL=1, plugin is confirmed reachable.')
-        if debug_mode:
-            logger.warning(f'[DRIVING_RM_DEBUG] plugin called. batch_size={len(inputs)}')
-            _append_debug_file(f'[call] batch_size={len(inputs)}')
         rm_inputs = self._build_rm_inputs(inputs)
-        if debug_mode and rm_inputs:
-            logger.warning(f'[DRIVING_RM_DEBUG] first_rm_prompt={rm_inputs[0]["messages"][-1]["content"][:300]}')
-            _append_debug_file(f'[prompt] {rm_inputs[0]["messages"][-1]["content"][:120]}')
         results = self.engine.infer(rm_inputs, self.request_config, use_tqdm=False)
         rewards = [self._extract_reward(result.choices[0].message.content) for result in results]
-        if debug_mode:
-            logger.warning(f'[DRIVING_RM_DEBUG] rewards_preview={rewards[:3]}')
-            _append_debug_file(f'[reward] {rewards[:3]}')
         return torch.tensor(rewards, dtype=torch.float32)
-
-    @staticmethod
-    def _maybe_wait_for_debugger():
-        global _DEBUG_WAIT_DONE
-        if _DEBUG_WAIT_DONE:
-            return
-        if os.getenv('DRIVING_RM_DEBUG_WAIT', '0') != '1':
-            return
-        _DEBUG_WAIT_DONE = True
-        try:
-            import debugpy
-            host = os.getenv('DRIVING_RM_DEBUG_HOST', '127.0.0.1')
-            port = int(os.getenv('DRIVING_RM_DEBUG_PORT', '5678'))
-            debugpy.listen((host, port))
-            logger.warning(f'[DRIVING_RM_DEBUG] waiting debugger attach at {host}:{port}')
-            debugpy.wait_for_client()
-            logger.warning('[DRIVING_RM_DEBUG] debugger attached')
-        except Exception as e:
-            logger.warning(f'[DRIVING_RM_DEBUG] debug wait failed: {e}')
 
     def _build_rm_inputs(self, inputs: List[Dict]) -> List[Dict]:
         rubric_lines = '\n'.join([f'- {n}: {d} (weight={w:.3f})' for n, d, w in self.rubric])
@@ -295,7 +251,7 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
             candidate_text = messages[-1].get('content', '') if messages else ''
             rm_schema = request.get('rm_schema')
             schema_text = json.dumps(rm_schema, ensure_ascii=False) if rm_schema is not None else '无'
-            template_type, prefix = self._select_prefix(rm_schema)
+            template_type, prefix = self._select_prefix(request, rm_schema)
             prompt = self._render_prefix_prompt(
                 prefix=prefix,
                 rubric_lines=rubric_lines,
@@ -322,8 +278,6 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
                 system_prompt = template.get('system_prompt') if isinstance(template, dict) else None
             else:
                 system_prompt = prefix.get('system_prompt_prefix')
-            if os.getenv('DRIVING_RM_DEBUG', '0') == '1':
-                logger.warning(f'[DRIVING_RM_DEBUG] template_type={template_type}')
             request['messages'] = [{
                 'role': 'system',
                 'content': system_prompt or self.system
@@ -334,10 +288,11 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
             rm_inputs.append(request)
         return rm_inputs
 
-    def _select_prefix(self, rm_schema: Optional[Dict]) -> Tuple[str, Dict]:
-        if not isinstance(rm_schema, dict):
-            return 'default', self.prefix_store.get('default', {})
-        t = str(rm_schema.get('template_type', '') or rm_schema.get('type', '')).strip()
+    def _select_prefix(self, request: Dict, rm_schema: Optional[Dict]) -> Tuple[str, Dict]:
+        t = str(request.get('rm_template_type', '') or request.get('template_type', '')).strip()
+        if not t and isinstance(rm_schema, dict):
+            # Backward-compatible fallback for old datasets.
+            t = str(rm_schema.get('template_type', '') or rm_schema.get('type', '')).strip()
         if not t:
             t = 'default'
         prefix = self.prefix_store.get(t) or self.prefix_store.get('default', {})

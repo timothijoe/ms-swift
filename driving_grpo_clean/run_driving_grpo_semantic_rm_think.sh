@@ -19,6 +19,7 @@ cd "${PROJECT_ROOT}"
   --dataset_manifest_path "${SCRIPT_DIR}/datasets_manifest_video_style_32_template_v5_with_assistant.json" \
   --manifest_register_file "${SCRIPT_DIR}/manifest_dataset_register.py" \
   --use_manifest_as_dataset true \
+  --load_from_cache_file false \
   --external_plugins "${SCRIPT_DIR}/driving_rm_plugin.py" \
   --reward_model "${DRIVING_RM_MODEL}" \
   --reward_model_plugin driving_rubric_rm \
@@ -37,4 +38,5 @@ cd "${PROJECT_ROOT}"
   --beta "${DRIVING_BETA:-0.1}" \
   --num_iterations 1 \
   --dataloader_num_workers 0 \
+  --remove_unused_columns false \
   --report_to none
