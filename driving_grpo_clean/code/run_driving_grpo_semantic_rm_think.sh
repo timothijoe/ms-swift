@@ -2,7 +2,7 @@
 set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 PYTHON_BIN="${PYTHON:-python3}"
 
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
@@ -16,7 +16,7 @@ fi
 cd "${PROJECT_ROOT}"
 
 "${PYTHON_BIN}" "${SCRIPT_DIR}/driving_manifest_main.py" \
-  --dataset_manifest_path "${SCRIPT_DIR}/datasets_manifest_video_style_32_template_v5_with_assistant.json" \
+  --dataset_manifest_path "${SCRIPT_DIR}/../data/datasets_manifest_video_style_32_template_v5_with_assistant.json" \
   --manifest_register_file "${SCRIPT_DIR}/manifest_dataset_register.py" \
   --use_manifest_as_dataset true \
   --load_from_cache_file false \

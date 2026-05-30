@@ -14,7 +14,10 @@ def main():
     parser.add_argument('--system', required=True, help='path to system prompt txt')
     parser.add_argument('--instruction', required=True, help='path to instruction txt')
     parser.add_argument('--fewshot', required=True, help='path to few-shot txt')
-    parser.add_argument('--json', default='driving_grpo_clean/rm_templates_prefix.json', help='target json file')
+    parser.add_argument(
+        '--json',
+        default='driving_grpo_clean/instructions/rm_templates_prefix.json',
+        help='target json file')
     args = parser.parse_args()
 
     json_path = Path(args.json)

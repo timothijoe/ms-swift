@@ -1,7 +1,0 @@
-{
-  "default_group": "default",
-  "scene_type_to_group": {
-    "blocked_lane_with_oncoming": "interaction_risk",
-    "traffic_signal_stop": "traffic_signal"
-  }
-}
