@@ -81,8 +81,8 @@ def _plugin_dir() -> str:
     return os.path.abspath(os.path.dirname(__file__))
 
 
-def _instructions_dir() -> str:
-    return os.path.abspath(os.path.join(_plugin_dir(), '..', 'instructions'))
+def _configs_dir() -> str:
+    return os.path.abspath(os.path.join(_plugin_dir(), '..', 'configs'))
 
 
 def _default_template_store() -> Dict:
@@ -115,7 +115,7 @@ def _default_template_store() -> Dict:
 def _load_template_store() -> Dict:
     """Load ONE template file. Fallback to built-in defaults when missing/invalid."""
     template_file = os.getenv('DRIVING_RM_TEMPLATES_FILE',
-                              os.path.join(_instructions_dir(), 'rm_templates.json'))
+                              os.path.join(_configs_dir(), 'rm_templates.json'))
     default_store = _default_template_store()
     if not os.path.exists(template_file):
         logger.warning(f'Template file not found: {template_file}. Using built-in defaults.')
@@ -137,7 +137,7 @@ def _load_template_store() -> Dict:
 def _load_prefix_store() -> Dict:
     """Load short prefix blocks by type. Fallback to {'default': ...}."""
     prefix_file = os.getenv('DRIVING_RM_PREFIX_FILE',
-                            os.path.join(_instructions_dir(), 'rm_templates_prefix.json'))
+                            os.path.join(_configs_dir(), 'rm_templates_prefix.json'))
     default_store = {
         'default': {
             'system_prompt_prefix': '你是自动驾驶语义评分器。仅输出JSON评分结果。',

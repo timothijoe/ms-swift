@@ -1,7 +1,7 @@
 [
   {
     "name": "driving_video_style_v5_train",
-    "path": "my_data/driving_video_style_32_template_v5_with_assistant.jsonl",
+    "path": "../../my_data/driving_video_style_32_template_v5_with_assistant.jsonl",
     "sample_num": 32,
     "preprocess_type": "driving_no_think",
     "data_type": "driving_decision",
@@ -9,7 +9,7 @@
   },
   {
     "name": "driving_video_style_v5_eval",
-    "path": "my_data/driving_video_style_32_template_v5_with_assistant.jsonl",
+    "path": "../../my_data/driving_video_style_32_template_v5_with_assistant.jsonl",
     "sample_num": 32,
     "preprocess_type": "driving_no_think",
     "data_type": "driving_decision",

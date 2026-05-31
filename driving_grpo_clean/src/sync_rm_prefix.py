@@ -16,7 +16,7 @@ def main():
     parser.add_argument('--fewshot', required=True, help='path to few-shot txt')
     parser.add_argument(
         '--json',
-        default='driving_grpo_clean/instructions/rm_templates_prefix.json',
+        default='driving_grpo_clean/configs/rm_templates_prefix.json',
         help='target json file')
     args = parser.parse_args()
 

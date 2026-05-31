@@ -14,7 +14,7 @@ OLD_PROJECT_PREFIX = '/home/linux/project/v3.12-ms-swift'
 
 
 def _repo_root() -> str:
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 
 def _resolve_path(path: str, *, base_dir: str) -> str:

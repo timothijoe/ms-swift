@@ -14,9 +14,9 @@ class DrivingManifestRLHFArguments(RLHFArguments):
     """Driving GRPO arguments for the cleaned manifest entrypoint."""
 
     dataset_manifest_path: str = os.path.join(
-        project_root(), 'driving_grpo_clean', 'data', 'datasets_manifest.json')
+        project_root(), 'driving_grpo_clean', 'configs', 'datasets_manifest.json')
     manifest_register_file: str = os.path.join(
-        project_root(), 'driving_grpo_clean', 'code', 'manifest_dataset_register.py')
+        project_root(), 'driving_grpo_clean', 'src', 'manifest_dataset_register.py')
     dataset_name: Optional[str] = None
     use_manifest_as_dataset: bool = True
     reward_mode: Literal['no_think', 'mixed'] = 'no_think'

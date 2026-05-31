@@ -14,13 +14,14 @@ if [ -z "${DRIVING_RM_MODEL:-}" ]; then
 fi
 
 cd "${PROJECT_ROOT}"
+export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH:-}"
 
-"${PYTHON_BIN}" "${SCRIPT_DIR}/driving_manifest_main.py" \
-  --dataset_manifest_path "${SCRIPT_DIR}/../data/datasets_manifest_video_style_32_template_v5_with_assistant.json" \
-  --manifest_register_file "${SCRIPT_DIR}/manifest_dataset_register.py" \
+"${PYTHON_BIN}" "${SCRIPT_DIR}/../src/driving_manifest_main.py" \
+  --dataset_manifest_path "${SCRIPT_DIR}/../configs/datasets_manifest_video_style_32_template_v5_with_assistant.json" \
+  --manifest_register_file "${SCRIPT_DIR}/../src/manifest_dataset_register.py" \
   --use_manifest_as_dataset true \
   --load_from_cache_file false \
-  --external_plugins "${SCRIPT_DIR}/driving_rm_plugin.py" \
+  --external_plugins "${SCRIPT_DIR}/../src/driving_rm_plugin.py" \
   --reward_model "${DRIVING_RM_MODEL}" \
   --reward_model_plugin driving_rubric_rm \
   --reward_weights "${DRIVING_REWARD_W_RM:-1.0}" \

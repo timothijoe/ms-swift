@@ -56,8 +56,8 @@ class DrivingManifestRLHF(SwiftRLHF):
         args = self.args
         manifest_path = self._resolve_path(args.dataset_manifest_path)
         register_file = self._resolve_path(args.manifest_register_file)
-        reward_file = self._resolve_path('driving_grpo_clean/code/driving_reward_funcs.py')
-        rm_plugin_file = self._resolve_path('driving_grpo_clean/code/driving_rm_plugin.py')
+        reward_file = self._resolve_path('driving_grpo_clean/src/driving_reward_funcs.py')
+        rm_plugin_file = self._resolve_path('driving_grpo_clean/src/driving_rm_plugin.py')
 
         if not os.path.exists(register_file):
             raise FileNotFoundError(f'manifest_register_file not found: {register_file}')
