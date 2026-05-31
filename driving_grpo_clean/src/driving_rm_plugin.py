@@ -40,6 +40,31 @@ def _load_rubric_items() -> List[Dict]:
     ]
 
 
+def _load_structured_score_weights() -> Dict[str, float]:
+    """
+    Weights for structured RM output:
+    score = wc*mean(c) + wlat*lat + wlon*lon + wq*q + wx*(1-x)
+    """
+    raw = os.getenv('DRIVING_RM_STRUCTURED_WEIGHTS', '').strip()
+    defaults = {'c': 0.4, 'lat': 0.2, 'lon': 0.2, 'q': 0.1, 'x': 0.1}
+    if not raw:
+        return defaults
+    try:
+        obj = json.loads(raw)
+        if not isinstance(obj, dict):
+            return defaults
+        out = {}
+        for k in defaults:
+            v = obj.get(k, defaults[k])
+            out[k] = max(0.0, float(v))
+        s = sum(out.values())
+        if s <= 0:
+            return defaults
+        return {k: v / s for k, v in out.items()}
+    except Exception:
+        return defaults
+
+
 def _normalize_weights(items: List[Dict]) -> List[Tuple[str, str, float]]:
     values = []
     total = 0.0
@@ -219,6 +244,7 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
         self.engine = PtEngine.from_model_template(self.model, self.template, max_batch_size=0)
         self.request_config = RequestConfig(max_tokens=256, temperature=0)
         self.rubric = _normalize_weights(_load_rubric_items())
+        self.structured_weights = _load_structured_score_weights()
         self.system = (
             '你是自动驾驶决策评审器。请根据打分点对模型输出评分。'
             '每个分项分数范围[0,1]。你必须只输出严格JSON，禁止输出任何额外文本。'
@@ -251,7 +277,7 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
             think = request.get('think', '') or label_think
             gt_answer = request.get('gt_answer', {}) or label_answer
             pred_think, pred_answer = _extract_pred_think_and_answer(messages)
-            candidate_text = messages[-1].get('content', '') if messages else ''
+            candidate_text = pred_think or ''
             rm_schema = request.get('rm_schema')
             schema_text = json.dumps(rm_schema, ensure_ascii=False) if rm_schema is not None else '无'
             template_type, prefix = self._select_prefix(request, rm_schema)
@@ -326,14 +352,12 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
             f'标准JSON:\n{schema_text}',
             '',
             '【候选回答】',
-            candidate_text or message_text,
+            candidate_text or pred_think or '',
             '',
             '【补充上下文】',
             f'打分点:\n{rubric_lines}',
             f'标准think:\n{gt_think}',
             f'模型think:\n{pred_think}',
-            f'标准answer:\n{json.dumps(gt_answer, ensure_ascii=False)}',
-            f'模型answer:\n{json.dumps(pred_answer, ensure_ascii=False)}',
             '',
             '请严格只输出JSON。'
         ])
@@ -467,6 +491,11 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
         obj = self._extract_json(text)
         if obj is None:
             return 0.0
+        # Structured schema path:
+        # {"c":[...], "lat":0~1, "lon":0~1, "q":0~1, "x":0~1}
+        if isinstance(obj, dict) and any(k in obj for k in ('c', 'lat', 'lon', 'q', 'x')):
+            return self._extract_structured_reward(obj)
+
         sub_scores = obj.get('sub_scores', {})
         if not isinstance(sub_scores, dict):
             sub_scores = {}
@@ -489,6 +518,36 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
             except Exception:
                 pass
         return float(max(0.0, min(1.0, weighted)))
+
+    def _extract_structured_reward(self, obj: Dict) -> float:
+        def _to01(v) -> float:
+            try:
+                return max(0.0, min(1.0, float(v)))
+            except Exception:
+                return 0.0
+
+        c_raw = obj.get('c', [])
+        c_vals = []
+        if isinstance(c_raw, list):
+            c_vals = [_to01(v) for v in c_raw]
+        elif c_raw is not None:
+            c_vals = [_to01(c_raw)]
+        c_score = (sum(c_vals) / len(c_vals)) if c_vals else 0.0
+
+        lat = _to01(obj.get('lat', 0.0))
+        lon = _to01(obj.get('lon', 0.0))
+        q = _to01(obj.get('q', 0.0))
+        x = _to01(obj.get('x', 1.0))
+
+        w = self.structured_weights
+        score = (
+            w['c'] * c_score +
+            w['lat'] * lat +
+            w['lon'] * lon +
+            w['q'] * q +
+            w['x'] * (1.0 - x)
+        )
+        return float(max(0.0, min(1.0, score)))
 
     @staticmethod
     def _extract_json(text: str):
