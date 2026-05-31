@@ -245,6 +245,16 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
         self.request_config = RequestConfig(max_tokens=256, temperature=0)
         self.rubric = _normalize_weights(_load_rubric_items())
         self.structured_weights = _load_structured_score_weights()
+        # Hard constraints for think length (character count). <=0 means disabled.
+        self.think_min_chars = int(os.getenv('DRIVING_RM_THINK_MIN_CHARS', '1'))
+        self.think_max_chars = int(os.getenv('DRIVING_RM_THINK_MAX_CHARS', '400'))
+        # think constraint mode: post|hard
+        self.think_constraint_mode = str(os.getenv('DRIVING_RM_THINK_CONSTRAINT_MODE', 'post')).strip().lower()
+        if self.think_constraint_mode not in {'post', 'hard'}:
+            self.think_constraint_mode = 'post'
+        # post mode penalty when think exists but length is out of range
+        self.think_len_penalty = float(os.getenv('DRIVING_RM_THINK_LEN_PENALTY', '0.2'))
+        self.think_len_penalty = max(0.0, min(1.0, self.think_len_penalty))
         self.system = (
             '你是自动驾驶决策评审器。请根据打分点对模型输出评分。'
             '每个分项分数范围[0,1]。你必须只输出严格JSON，禁止输出任何额外文本。'
@@ -255,10 +265,49 @@ class DrivingRubricRMPlugin(DefaultRMPlugin):
         self.template_rng = random.Random(self.template_seed)
 
     def __call__(self, inputs, **kwargs):
+        rewards = [0.0] * len(inputs)
         rm_inputs = self._build_rm_inputs(inputs)
+        if not rm_inputs:
+            return torch.tensor(rewards, dtype=torch.float32)
         results = self.engine.infer(rm_inputs, self.request_config, use_tqdm=False)
-        rewards = [self._extract_reward(result.choices[0].message.content) for result in results]
+        for i, result in enumerate(results):
+            raw = self._extract_reward(result.choices[0].message.content)
+            sample = inputs[i] if i < len(inputs) else {}
+            messages = sample.get('messages', []) if isinstance(sample, dict) else []
+            pred_think, _ = _extract_pred_think_and_answer(messages)
+            rewards[i] = self._apply_think_constraint(raw, pred_think)
         return torch.tensor(rewards, dtype=torch.float32)
+
+    def _is_valid_think(self, think: str) -> bool:
+        if not isinstance(think, str):
+            return False
+        n = len(think.strip())
+        if n == 0:
+            return False
+        if self.think_min_chars > 0 and n < self.think_min_chars:
+            return False
+        if self.think_max_chars > 0 and n > self.think_max_chars:
+            return False
+        return True
+
+    def _apply_think_constraint(self, score: float, think: str) -> float:
+        score = max(0.0, min(1.0, float(score)))
+        n = len(think.strip()) if isinstance(think, str) else 0
+        # no think: always zero
+        if n == 0:
+            return 0.0
+        in_range = True
+        if self.think_min_chars > 0 and n < self.think_min_chars:
+            in_range = False
+        if self.think_max_chars > 0 and n > self.think_max_chars:
+            in_range = False
+        if in_range:
+            return score
+        # out of range
+        if self.think_constraint_mode == 'hard':
+            return 0.0
+        # post mode
+        return score * self.think_len_penalty
 
     def _build_rm_inputs(self, inputs: List[Dict]) -> List[Dict]:
         rubric_lines = '\n'.join([f'- {n}: {d} (weight={w:.3f})' for n, d, w in self.rubric])
