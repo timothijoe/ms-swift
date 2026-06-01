@@ -1,0 +1,8 @@
+【最终评分输入（仅以此为准）】
+<<<RM_SCHEMA_BEGIN>>>
+{RM_SCHEMA}
+<<<RM_SCHEMA_END>>>
+
+<<<CANDIDATE_BEGIN>>>
+{CANDIDATE}
+<<<CANDIDATE_END>>>
