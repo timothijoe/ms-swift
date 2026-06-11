@@ -67,7 +67,8 @@ bash driving_grpo_clean/scripts/run_driving_grpo_manifest.sh
 Formal RM 的默认逻辑：
 
 - 标准侧优先读取数据集里的 `rm_schema`，建议离线预生成并存入样本。
-- 候选侧从模型输出中提取 `<think>...</think>`；没有 `<think>` 时使用完整生成文本。
+- 候选侧默认从模型输出中提取 `<think>...</think>`；没有 `<think>` 时使用完整生成文本。
+- 若样本字段 `rm_extract_think=false`，则候选侧只取最终决策 JSON 之前的文本，避免把 `{"横向决策": "...", "纵向决策": "..."}` 混入 Formal RM。
 - 候选文本会被结构化抽取为 `因素` 和 `动作`。
 - 因素先做程序化粗匹配，再用 RM 对 detail pair 打 `0/0.5/1` 细分。
 - 动作分为 `lat/lon/strategy` 三项。
@@ -100,4 +101,5 @@ DRIVING_FORMAL_RM_SAVE_PATH=output/rm.jsonl      # 改保存路径
 DRIVING_FORMAL_RM_TASK_WEIGHT=0.85               # 任务分权重
 DRIVING_FORMAL_RM_TEXT_WEIGHT=0.15               # 文本质量权重
 DRIVING_FORMAL_RM_DEBUG=1                        # 打印少量调试样本
+DRIVING_FORMAL_RM_EXTRACT_THINK=0                # 全局改为取决策 JSON 之前的文本
 ```

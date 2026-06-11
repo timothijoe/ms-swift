@@ -343,10 +343,45 @@ def _action_from_answer(answer: Any, reference_text: str = '') -> Dict[str, Any]
     }
 
 
-def _extract_pred_text(messages: Any) -> str:
+def _to_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {'1', 'true', 'yes', 'y', 'on'}:
+            return True
+        if text in {'0', 'false', 'no', 'n', 'off'}:
+            return False
+    return default
+
+
+def _strip_decision_json(content: str) -> str:
+    """Return text before the final decision JSON to avoid leaking answer fields into RM scoring."""
+    content = _safe_str(content)
+    for match in re.finditer(r'\{.*?\}', content, flags=re.DOTALL):
+        obj = _safe_json_obj(match.group(0))
+        if not isinstance(obj, dict):
+            continue
+        answer_obj = obj.get('answer') if isinstance(obj.get('answer'), dict) else obj
+        if isinstance(answer_obj, dict) and ('横向决策' in answer_obj or '纵向决策' in answer_obj):
+            prefix = content[:match.start()].strip()
+            return prefix or content.strip()
+    return content.strip()
+
+
+def _extract_pred_text(sample: Dict[str, Any]) -> str:
+    messages = sample.get('messages') if isinstance(sample, dict) else None
     if not isinstance(messages, list) or not messages:
         return ''
     content = _safe_str(messages[-1].get('content') if isinstance(messages[-1], dict) else messages[-1])
+    default_extract_think = _to_bool(os.getenv('DRIVING_FORMAL_RM_EXTRACT_THINK', '1'), default=True)
+    extract_think = _to_bool(sample.get('rm_extract_think'), default=default_extract_think) if isinstance(sample, dict) else default_extract_think
+    if not extract_think:
+        return _strip_decision_json(content)
     match = re.search(r'<think>(.*?)</think>', content, flags=re.DOTALL)
     return match.group(1).strip() if match else content
 
@@ -686,7 +721,7 @@ class DrivingFormalRMPlugin(DefaultRMPlugin):
     def _score_sample(self, sample: Dict[str, Any]) -> Dict[str, Any]:
         sample = sample if isinstance(sample, dict) else {}
         reference_text = _extract_reference_text(sample)
-        candidate_text = _extract_pred_text(sample.get('messages'))
+        candidate_text = _extract_pred_text(sample)
         gt_answer = sample.get('gt_answer')
         label_obj = _safe_json_obj(sample.get('label'))
         if gt_answer is None and isinstance(label_obj, dict):
