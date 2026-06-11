@@ -24,16 +24,14 @@ set -- "${PYTHON_BIN}" "${SCRIPT_DIR}/../src/driving_manifest_main.py" \
   --do_eval true \
   --beta 0.1
 
-# Optional: enable RM-based rubric scoring.
+# Optional: enable formal RM scoring.
 # Example:
-# DRIVING_RM_MODEL=Qwen/Qwen2.5-1.5B-Instruct bash driving_grpo_clean/scripts/run_driving_grpo_manifest.sh
-# DRIVING_RM_RUBRIC_JSON='[{"name":"horizontal_decision","desc":"横向决策是否一致","weight":0.5},{"name":"vertical_decision","desc":"纵向决策是否一致","weight":0.5}]' \
 # DRIVING_RM_MODEL=Qwen/Qwen2.5-1.5B-Instruct bash driving_grpo_clean/scripts/run_driving_grpo_manifest.sh
 if [ -n "${DRIVING_RM_MODEL:-}" ]; then
   set -- "$@" \
     --external_plugins "${SCRIPT_DIR}/../src/driving_rm_plugin.py" \
     --reward_model "${DRIVING_RM_MODEL}" \
-    --reward_model_plugin driving_rubric_rm \
+    --reward_model_plugin driving_formal_rm \
     --reward_weights "${DRIVING_REWARD_W1:-0.4}" "${DRIVING_REWARD_W2:-0.4}" "${DRIVING_REWARD_W3:-0.2}"
 fi
 

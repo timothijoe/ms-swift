@@ -24,7 +24,7 @@ export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH:-}"
   --external_plugins "${SCRIPT_DIR}/../src/driving_rm_plugin.py" \
   --reward_funcs driving_decision_accuracy \
   --reward_model "${DRIVING_RM_MODEL}" \
-  --reward_model_plugin driving_rubric_rm \
+  --reward_model_plugin driving_formal_rm \
   --reward_weights "${DRIVING_REWARD_W_ACC:-0.5}" "${DRIVING_REWARD_W_RM:-0.5}" \
   --output_dir "${PROJECT_ROOT}/output/GRPO_DRIVING_SEMANTIC_RM_THINK" \
   --max_length 1024 \

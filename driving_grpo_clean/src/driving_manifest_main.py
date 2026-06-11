@@ -72,7 +72,7 @@ class DrivingManifestRLHF(SwiftRLHF):
         # Make RM plugin loading explicit and observable in debug mode.
         if getattr(args, 'reward_model', None):
             rm_plugins = getattr(args, 'reward_model_plugin', None)
-            if rm_plugins and 'driving_rubric_rm' in rm_plugins:
+            if rm_plugins and 'driving_formal_rm' in rm_plugins:
                 if not os.path.exists(rm_plugin_file):
                     raise FileNotFoundError(f'rm plugin file not found: {rm_plugin_file}')
                 import_external_file(rm_plugin_file)
