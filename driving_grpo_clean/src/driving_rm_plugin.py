@@ -290,6 +290,16 @@ def _extract_scene_locally(summary: str) -> Dict[str, Any]:
     return _normalize_scene({'因素': factors, '动作': _infer_actions(summary)})
 
 
+def build_reference_rm_schema(reference: str) -> Dict[str, Any]:
+    """Build the dataset-side rm_schema from one reference summary.
+
+    This is intended for offline dataset preparation. The returned object is the
+    canonical schema consumed by DrivingFormalRMPlugin, so it can be written
+    directly to each JSONL sample as `rm_schema`.
+    """
+    return _extract_scene_locally(reference)
+
+
 def _scene_from_rm_schema(rm_schema: Any, gt_answer: Any = None, reference_text: str = '') -> Optional[Dict[str, Any]]:
     if not isinstance(rm_schema, dict):
         return None

@@ -75,6 +75,15 @@ Formal RM 的默认逻辑：
 - 最终任务分为 `(sum(factor_scores) + lat + lon + strategy) / (factor_count + 3)`。
 - 默认再融合文本质量分：`0.85 * task_score + 0.15 * text_quality_score`。
 
+离线生成单条 reference 的 `rm_schema`：
+
+```python
+from driving_grpo_clean.src.driving_rm_plugin import build_reference_rm_schema
+
+rm_schema = build_reference_rm_schema(
+    '右前方一辆SUV向左变道，意图切入自车道，自车应减速让行。')
+```
+
 默认会把评分明细追加保存到：
 
 ```text
