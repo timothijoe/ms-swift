@@ -112,6 +112,7 @@ venv.bak/
 .run
 
 # custom
+.worktrees/
 *.pkl
 *.pkl.json
 *.log.json
