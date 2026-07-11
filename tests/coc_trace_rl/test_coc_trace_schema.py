@@ -3,6 +3,9 @@ from coc_trace_rl.src.coc_trace_schema import (
     parse_trace_schema,
     should_trigger_coc_trace,
 )
+from coc_trace_rl.src.driving_dataset import prepare_jsonl
+
+import json
 
 
 def test_guidance_has_three_levels_and_omits_actions():
@@ -31,3 +34,14 @@ def test_trigger_requires_flag_threshold_and_probability():
     assert not should_trigger_coc_trace(enabled=True, group_scores=[0.8], **{
         key: value for key, value in params.items() if key != 'group_scores'
     })
+
+
+def test_prepare_jsonl_persists_schema(tmp_path):
+    source = tmp_path / 'source.jsonl'
+    target = tmp_path / 'prepared.jsonl'
+    source.write_text('{"think":"前方盲区影响可见性。"}\n', encoding='utf-8')
+
+    assert prepare_jsonl(source, target) == 1
+
+    row = json.loads(target.read_text(encoding='utf-8'))
+    assert row['coc_trace_schema']['task_subcategory'] == '盲区'
