@@ -45,3 +45,12 @@ class DrivingDecisionAccuracyReward:
             is_correct = all(decision.get(key) == str(target.get(key)) for key in ('横向决策', '纵向决策'))
             scores.append(float(is_correct))
         return scores
+
+
+try:
+    from swift.plugin import orms
+except ModuleNotFoundError:
+    pass
+else:
+    orms['driving_decision_accuracy'] = DrivingDecisionAccuracyReward
+    orms['coc_trace_score'] = CocTraceScoreReward
