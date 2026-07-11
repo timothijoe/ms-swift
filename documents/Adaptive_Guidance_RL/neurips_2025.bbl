@@ -1,0 +1,214 @@
+\begin{thebibliography}{10}
+
+\bibitem{openai2024o1}
+OpenAI, Aaron Jaech, Adam Kalai, Adam Lerer, and Adam et~al. Richardson.
+\newblock Openai o1 system card.
+\newblock {\em arXiv preprint arXiv:2412.16720}, 2024.
+
+\bibitem{guo2025deepseekr1}
+Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, and Ruoyu et~al. Zhang.
+\newblock Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning.
+\newblock {\em arXiv preprint arXiv:2501.12948}, 2025.
+
+\bibitem{lambert2024tulu3}
+Nathan Lambert, Jacob Morrison, Valentina Pyatkin, Shengyi Huang, and Hamish et~al. Ivison.
+\newblock Tülu 3: Pushing frontiers in open language model post-training.
+\newblock {\em arXiv preprint arXiv:2411.15124}, 2024.
+
+\bibitem{havrilla2024teaching}
+Alexander Havrilla, Yuqing Du, Sharath~Chandra Raparthy, Christoforos Nalmpantis, Jane Dwivedi-Yu, Eric Hambro, Sainbayar Sukhbaatar, and Roberta Raileanu.
+\newblock Teaching large language models to reason with reinforcement learning.
+\newblock In {\em AI for Math Workshop @ ICML 2024}, 2024.
+
+\bibitem{yue2025does}
+Yang Yue, Zhiqi Chen, Rui Lu, Andrew Zhao, Zhaokai Wang, Shiji Song, and Gao Huang.
+\newblock Does reinforcement learning really incentivize reasoning capacity in llms beyond the base model?
+\newblock {\em arXiv preprint arXiv:2504.13837}, 2025.
+
+\bibitem{zelikman2022star}
+Eric Zelikman, Yuhuai Wu, Jesse Mu, and Noah~D. Goodman.
+\newblock Star: Bootstrapping reasoning with reasoning.
+\newblock In {\em Advances in Neural Information Processing Systems (NeurIPS)}, 2022.
+
+\bibitem{gulcehre2023rest}
+Caglar Gulcehre, Tom Le~Paine, Srivatsan Srinivasan, Ksenia Konyushkova, Lotte Weerts, Abhishek Sharma, Aditya Siddhant, Alex Ahern, Miaosen Wang, Chenjie Gu, Wolfgang Macherey, Arnaud Doucet, Orhan Firat, and Nando de~Freitas.
+\newblock Reinforced self-training (rest) for language modeling.
+\newblock {\em arXiv preprint arXiv:2308.08998}, 2023.
+
+\bibitem{openai2024rft}
+{OpenAI}.
+\newblock Openai's reinforcement fine-tuning research program, 2024.
+
+\bibitem{singh2024beyond}
+Avi Singh, John~D Co-Reyes, Rishabh Agarwal, Ankesh Anand, Piyush Patil, Xavier Garcia, Peter~J Liu, James Harrison, Jaehoon Lee, Kelvin Xu, Aaron~T Parisi, Abhishek Kumar, Alexander~A Alemi, Alex Rizkowsky, Azade Nova, Ben Adlam, Bernd Bohnet, Gamaleldin~Fathy Elsayed, Hanie Sedghi, Igor Mordatch, Isabelle Simpson, Izzeddin Gur, Jasper Snoek, Jeffrey Pennington, Jiri Hron, Kathleen Kenealy, Kevin Swersky, Kshiteej Mahajan, Laura~A Culp, Lechao Xiao, Maxwell Bileschi, Noah Constant, Roman Novak, Rosanne Liu, Tris Warkentin, Yamini Bansal, Ethan Dyer, Behnam Neyshabur, Jascha Sohl-Dickstein, and Noah Fiedel.
+\newblock Beyond human data: Scaling self-training for problem-solving with language models.
+\newblock {\em Transactions on Machine Learning Research}, 2024.
+\newblock Expert Certification.
+
+\bibitem{hosseini2024vstar}
+Arian Hosseini, Xingdi Yuan, Nikolay Malkin, Aaron Courville, Alessandro Sordoni, and Rishabh Agarwal.
+\newblock V-star: Training verifiers for self-taught reasoners.
+\newblock In {\em Proceedings of the 2024 Conference on Language Modeling (COLM)}, 2024.
+
+\bibitem{zhang2024restmcts}
+Dan Zhang, Sining Zhoubian, Ziniu Hu, Yisong Yue, Yuxiao Dong, and Jie Tang.
+\newblock Re{ST}-{MCTS}*: {LLM} self-training via process reward guided tree search.
+\newblock In {\em The Thirty-eighth Annual Conference on Neural Information Processing Systems}, 2024.
+
+\bibitem{lillicrap2015continuous}
+Timothy~P Lillicrap, Jonathan~J Hunt, Alexander Pritzel, Nicolas Heess, Tom Erez, Yuval Tassa, David Silver, and Daan Wierstra.
+\newblock Continuous control with deep reinforcement learning.
+\newblock {\em arXiv preprint arXiv:1509.02971}, 2015.
+
+\bibitem{model:Qwen25}
+An~Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo~Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang, Haoran Wei, et~al.
+\newblock Qwen2. 5 technical report.
+\newblock {\em arXiv preprint arXiv:2412.15115}, 2024.
+
+\bibitem{gsm8k}
+Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, et~al.
+\newblock Training verifiers to solve math word problems.
+\newblock {\em arXiv preprint arXiv:2110.14168}, 2021.
+
+\bibitem{math500}
+Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob Steinhardt.
+\newblock Measuring mathematical problem solving with the math dataset.
+\newblock {\em arXiv preprint arXiv:2103.03874}, 2021.
+
+\bibitem{aime24}
+{American Mathematics Competitions}.
+\newblock Aime 2024.
+\newblock 2024.
+\newblock Problems from the American Invitational Mathematics Examination.
+
+\bibitem{aime25}
+{American Mathematics Competitions}.
+\newblock Aime 2025.
+\newblock 2025.
+\newblock Problems from the American Invitational Mathematics Examination.
+
+\bibitem{amc23}
+{American Mathematics Competitions}.
+\newblock Amc 2023.
+\newblock 2023.
+\newblock American Mathematics Competitions 10/12.
+
+\bibitem{gpqa}
+David Rein, Betty~Li Hou, Asa~Cooper Stickland, Jackson Petty, Richard~Yuanzhe Pang, Julien Dirani, Julian Michael, and Samuel~R Bowman.
+\newblock Gpqa: A graduate-level google-proof q\&a benchmark.
+\newblock In {\em First Conference on Language Modeling}, 2024.
+
+\bibitem{olympiadbench}
+Chaoqun He, Renjie Luo, Yuzhuo Bai, Shengding Hu, Zhen~Leng Thai, Junhao Shen, Jinyi Hu, Xu~Han, Yujie Huang, Yuxiang Zhang, et~al.
+\newblock Olympiadbench: A challenging benchmark for promoting agi with olympiad-level bilingual multimodal scientific problems.
+\newblock {\em arXiv preprint arXiv:2402.14008}, 2024.
+
+\bibitem{guo2024deepseek}
+Daya Guo, Qihao Zhu, Dejian Yang, Zhenda Xie, Kai Dong, Wentao Zhang, Guanting Chen, Xiao Bi, Yu~Wu, YK~Li, et~al.
+\newblock Deepseek-coder: When the large language model meets programming--the rise of code intelligence.
+\newblock {\em arXiv preprint arXiv:2401.14196}, 2024.
+
+\bibitem{livecodebench}
+Naman Jain, King Han, Alex Gu, Wen-Ding Li, Fanjia Yan, Tianjun Zhang, Sida Wang, Armando Solar-Lezama, Koushik Sen, and Ion Stoica.
+\newblock Livecodebench: Holistic and contamination free evaluation of large language models for code.
+\newblock {\em arXiv preprint}, 2024.
+
+\bibitem{humaneval}
+Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde De~Oliveira Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, et~al.
+\newblock Evaluating large language models trained on code.
+\newblock {\em arXiv preprint arXiv:2107.03374}, 2021.
+
+\bibitem{openr1}
+Hugging Face.
+\newblock Open r1: A fully open reproduction of deepseek-r1, January 2025.
+
+\bibitem{yu2025dapoopensourcellmreinforcement}
+Qiying Yu, Zheng Zhang, Ruofei Zhu, Yufeng Yuan, Xiaochen Zuo, Yu~Yue, Tiantian Fan, Gaohong Liu, Lingjun Liu, Xin Liu, Haibin Lin, Zhiqi Lin, Bole Ma, Guangming Sheng, Yuxuan Tong, Chi Zhang, Mofan Zhang, Wang Zhang, Hang Zhu, Jinhua Zhu, Jiaze Chen, Jiangjie Chen, Chengyi Wang, Hongli Yu, Weinan Dai, Yuxuan Song, Xiangpeng Wei, Hao Zhou, Jingjing Liu, Wei-Ying Ma, Ya-Qin Zhang, Lin Yan, Mu~Qiao, Yonghui Wu, and Mingxuan Wang.
+\newblock Dapo: An open-source llm reinforcement learning system at scale, 2025.
+
+\bibitem{ziegler2019finetuning}
+Daniel~M. Ziegler, Nisan Stiennon, Jeffrey Wu, Tom~B. Brown, Alec Radford, Dario Amodei, Paul Christiano, and Geoffrey Irving.
+\newblock Fine-tuning language models from human preferences.
+\newblock {\em arXiv preprint arXiv:1909.08593}, 2019.
+
+\bibitem{ouyang2022training}
+Long Ouyang, Jeffrey Wu, Xu~Jiang, Diogo Almeida, Carroll~L. Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, John Schulman, Jacob Hilton, Fraser Kelton, Luke Miller, Maddie Simens, Amanda Askell, Peter Welinder, Paul~F. Christiano, Jan Leike, and Ryan Lowe.
+\newblock Training language models to follow instructions with human feedback.
+\newblock In {\em Advances in Neural Information Processing Systems 35}, 2022.
+
+\bibitem{abdulhai2023lmrl}
+Marwa Abdulhai, Isadora White, Charlie Snell, Charles Sun, Joey Hong, Yuexiang Zhai, Kelvin Xu, and Sergey Levine.
+\newblock Lmrl gym: Benchmarks for multi-turn reinforcement learning with language models.
+\newblock {\em arXiv preprint arXiv:2311.18232}, 2023.
+
+\bibitem{pmlr-v235-zhou24t}
+Yifei Zhou, Andrea Zanette, Jiayi Pan, Sergey Levine, and Aviral Kumar.
+\newblock Archer: Training language model agents via hierarchical multi-turn rl.
+\newblock In Ruslan Salakhutdinov, Zico Kolter, Katherine Heller, Adrian Weller, Nuria Oliver, Jonathan Scarlett, and Felix Berkenkamp, editors, {\em Proceedings of the 41st International Conference on Machine Learning}, volume 235 of {\em Proceedings of Machine Learning Research}, pages 62178--62209. PMLR, 21--27 Jul 2024.
+
+\bibitem{sun2024aligning}
+Zhiqing Sun, Sheng Shen, Shengcao Cao, Haotian Liu, Chunyuan Li, Yikang Shen, Chuang Gan, Liang-Yan Gui, Yu-Xiong Wang, Yiming Yang, Kurt Keutzer, and Trevor Darrell.
+\newblock Aligning large multimodal models with factually augmented rlhf.
+\newblock In {\em Findings of the Association for Computational Linguistics: ACL 2024}, pages 13088--13110, Bangkok, Thailand, August 2024. Association for Computational Linguistics.
+
+\bibitem{du2025kimi}
+Angang Du, Bofei Gao, Bowei Xing, Changjiu Jiang, and Cheng et~al. Chen.
+\newblock Kimi k1.5: Scaling reinforcement learning with llms.
+\newblock {\em arXiv preprint arXiv:2501.12599}, 2025.
+
+\bibitem{cobbe2021training}
+Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman.
+\newblock Training verifiers to solve math word problems.
+\newblock {\em arXiv preprint arXiv:2110.14168}, 2021.
+
+\bibitem{austin2021program}
+Jacob Austin, Augustus Odena, Maxwell Nye, Maarten Bosma, Henryk Michalewski, David Dohan, Ellen Jiang, Carrie Cai, Michael Terry, Quoc Le, and Charles Sutton.
+\newblock Program synthesis with large language models.
+\newblock {\em arXiv preprint arXiv:2108.07732}, 2021.
+
+\bibitem{gehring2024rlef}
+Jonas Gehring, Kunhao Zheng, Jade Copet, Vegard Mella, Taco Cohen, and Gabriel Synnaeve.
+\newblock Rlef: Grounding code llms in execution feedback with reinforcement learning.
+\newblock {\em arXiv preprint arXiv:2410.02089}, 2024.
+
+\bibitem{chu2025sftmemorizesrlgeneralizes}
+Tianzhe Chu, Yuexiang Zhai, Jihan Yang, Shengbang Tong, Saining Xie, Dale Schuurmans, Quoc~V. Le, Sergey Levine, and Yi~Ma.
+\newblock Sft memorizes, rl generalizes: A comparative study of foundation model post-training.
+\newblock {\em arXiv preprint arXiv:2501.17161}, 2025.
+
+\bibitem{snell2025scaling}
+Charlie~Victor Snell, Jaehoon Lee, Kelvin Xu, and Aviral Kumar.
+\newblock Scaling {LLM} test-time compute optimally can be more effective than scaling parameters for reasoning.
+\newblock In {\em The Thirteenth International Conference on Learning Representations}, 2025.
+
+\bibitem{zhao2025echo}
+Rosie Zhao, Alexandru Meterez, Sham Kakade, Cengiz Pehlevan, Samy Jelassi, and Eran Malach.
+\newblock Echo chamber: Rl post-training amplifies behaviors learned in pretraining.
+\newblock {\em arXiv preprint arXiv:2504.07912}, 2025.
+
+\bibitem{dang2025assessing}
+Xingyu Dang, Christina Baek, J~Zico Kolter, and Aditi Raghunathan.
+\newblock Assessing diversity collapse in reasoning.
+\newblock In {\em Scaling Self-Improving Foundation Models without Human Supervision}, 2025.
+
+\bibitem{rafailov2023direct}
+Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher~D Manning, Stefano Ermon, and Chelsea Finn.
+\newblock Direct preference optimization: Your language model is secretly a reward model.
+\newblock In {\em Thirty-seventh Conference on Neural Information Processing Systems}, 2023.
+
+\bibitem{leroux2025tapered}
+Nicolas Le~Roux, Marc~G. Bellemare, Jonathan Lebensold, Arnaud Bergeron, Joshua Greaves, Alex Fréchette, Carolyne Pelletier, Eric Thibodeau-Laufer, Sándor Toth, and Samantha Work.
+\newblock Tapered off-policy reinforce: Stable and efficient reinforcement learning for llms.
+\newblock {\em arXiv preprint arXiv:2503.14286}, 2025.
+
+\bibitem{yan2025luffy}
+Jianhao Yan, Yafu Li, Zican Hu, Zhi Wang, Ganqu Cui, Xiaoye Qu, Yu~Cheng, and Yue Zhang.
+\newblock Learning to reason under off-policy guidance.
+\newblock {\em arXiv preprint arXiv:2504.14945}, 2025.
+
+\bibitem{verl}
+Guangming Sheng, Chi Zhang, Zilingfeng Ye, Xibin Wu, Wang Zhang, Ru~Zhang, Yanghua Peng, Haibin Lin, and Chuan Wu.
+\newblock Hybridflow: A flexible and efficient rlhf framework.
+\newblock {\em arXiv preprint arXiv: 2409.19256}, 2024.
+
+\end{thebibliography}

@@ -1,0 +1,1242 @@
+\documentclass{article}
+
+
+% if you need to pass options to natbib, use, e.g.:
+%     \PassOptionsToPackage{numbers, compress}{natbib}
+% before loading neurips_2025
+
+
+% ready for submission
+\usepackage[preprint]{neurips_2025}
+
+
+% to compile a preprint version, e.g., for submission to arXiv, add add the
+% [preprint] option:
+%     \usepackage[preprint]{neurips_2025}
+
+
+% to compile a camera-ready version, add the [final] option, e.g.:
+%     \usepackage[final]{neurips_2025}
+
+
+% to avoid loading the natbib package, add option nonatbib:
+%    \usepackage[nonatbib]{neurips_2025}
+
+
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage{xcolor}         % colors
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb,enumitem}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{booktabs}   % for \toprule, \midrule, \bottomrule
+\usepackage{multirow}   % for \multirow{…}{…}{…}
+\usepackage{fancyvrb}
+\usepackage{fvextra}
+\usepackage{subcaption} % provides the subfigure environment
+
+
+% --------------------------------------------------------------------------
+% Theorem-like environments
+% \theoremstyle{plain}
+\newtheorem{lemma}{Lemma}  
+\newtheorem{theorem}{Theorem}
+\newtheorem{proof}{Proof}
+
+
+% \newcommand{\todo}[1]{\textcolor{red}{\textbf{TODO:} #1}}
+\usepackage{xcolor}
+\usepackage{xspace}
+
+\def\blue{\textcolor{blue}}
+\def\green{\textcolor{green}}
+\def\red{\textcolor{red}}
+
+\newcommand{\todo}[2]{\textcolor{red}{\textbf{[TODO]}\xspace~#1\textsubscript{#2}}}
+
+
+% \title{Guidance-Augmented Rollouts on Failure Accelerate RLVR on Reasoning Tasks}
+% \title{Accelerating RLVR with Guidance on Failure}
+% \title{Selective Guidance Accelerates Reinforcement Learning of Reasoning Models}
+% \title{Conditional Guidance Accelerates Reinforcement Learning of Reasoning Models}
+\title{Adaptive Guidance Accelerates Reinforcement Learning of Reasoning Models}
+
+
+% The \author macro works with any number of authors. There are two commands
+% used to separate the names and addresses of multiple authors: \And and \AND.
+%
+% Using \And between authors leaves it to LaTeX to determine where to break the
+% lines. Using \AND forces a line break at that point. So, if LaTeX puts 3 of 4
+% authors names on the first line, and the last on the second line, try using
+% \AND instead of \And before the third author name.
+
+
+\author{%
+  \textbf{Vaskar Nath}\thanks{Primary authors. Correspondence to \texttt{\{sean.hendryx, vaskar.nath\}@scale.com}.}\quad
+  \textbf{Elaine Lau}\quad
+  \textbf{Anisha Gunjal}\\[3pt]
+  \textbf{Manasi Sharma}\quad
+  \textbf{Nikhil Baharte}\quad
+  \textbf{Sean Hendryx}\footnotemark[1]\\[6pt]
+  Scale AI
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+   We study the process through which reasoning models trained with reinforcement learning on verifiable rewards (RLVR) can learn to solve new problems. We find that RLVR drives performance in two main ways:
+   %through two main means
+   (1) by compressing pass@$k$ into pass@1 and (2) via "capability gain" in which models learn to solve new problems that they previously could not solve even at high $k$. We find that while capability gain exists across model scales, learning to solve new problems is primarily driven through self-distillation. We demonstrate these findings across model scales ranging from 0.5B to 72B parameters on >500,000 reasoning problems with prompts and verifiable final answers across math, science, and code domains. We further show that we can significantly improve pass@$k$ rates by leveraging \textit{natural language guidance} for the model to consider within context while still requiring the model to derive a solution chain from scratch. 
+   Based of these insights, we derive $\text{Guide}$ -- a new class of online training algorithms. 
+   $\text{Guide}$ adaptively incorporates hints into the model's context on problems for which all rollouts were initially incorrect and adjusts the importance sampling ratio for the "off-policy" trajectories in order to optimize the policy for contexts in which the hints are no longer present. We describe variants of $\text{Guide}$ for GRPO and PPO and empirically show that Guide-GRPO on 7B and 32B parameter models improves generalization over its vanilla counterpart with up to 4\% macro-average improvement across math benchmarks. We include careful ablations to analyze $\text{Guide}$'s components and theoretically analyze Guide's learning efficiency\footnote{Code will be open sourced.}.
+\end{abstract}
+
+\begin{flushright}
+\textit{``I can only show you the door. You're the one that has to walk through it.''} \\
+\vspace{0.1cm}
+--- Morpheus, The Matrix
+\end{flushright}
+
+
+\section{Introduction}
+Leading reasoning models on math, science, and coding benchmarks learn to utilize chain-of-thought via reinforcement learning with verifiable rewards (RLVR) \cite{openai2024o1, guo2025deepseekr1, lambert2024tulu3, havrilla2024teaching}. These models are optimized to maximize verifiable rewards by comparing predicted final answers to ground truth. Models trained with RLVR are capable of surpassing previous approaches (such as supervised finetuning (SFT) or reinforcement learning from human feedback (RLHF)) on challenging math and science benchmarks due to availability of verifiable rewards at scale. Yet the drivers of these gains—and how they evolve with model scale—remain poorly understood. Yue et al. \citep{yue2025does} attribute RLVR’s improvements almost entirely to the distillation of the base model’s existing knowledge. In this work, we instead formalize RLVR's improvements as a sum of two orthogonal effects—distillation and genuine capability gain—and investigate how each of these effects evolves as models scale.
+
+Specifically, there are at least two ways to improve a language model's ability to solve challenging reasoning problems autonomously:
+\begin{enumerate}[leftmargin=2em]
+    \item By distilling knowledge from pass@$k$ into pass@1 \cite{zelikman2022star, gulcehre2023rest, openai2024rft, singh2024beyond, hosseini2024vstar, zhang2024restmcts}
+    \item Capability gain via RL in which a language model learns to solve new problems it previously was not able to solve even when given $k$ attempts.
+\end{enumerate}
+
+In this work, we propose a formalism to measure the extent to which learning during RLVR is driven by self-distillation or capability gain. We then seek to leverage these insights to accelerate learning of new problems during RLVR by incorporating guidance into the reasoning model's context. We therefore address two main research questions:
+\begin{enumerate}[leftmargin=2em]
+  \item \textbf{Self-distillation or capability gain?}  To what extent is learning during RLVR merely redistributing probability mass among outputs the model already knows (“self-distillation”) versus genuinely expanding the model’s problem-solving capabilities?
+
+  \item \textbf{Do guidance-conditioned trajectories on failure accelerate learning?}  
+      If we give the policy selective guidance on complete problem failure, while requiring the trajectories to be generated by the same policy state (and therefore close to the on-policy distribution), can we close knowledge gaps faster than (a) using fully off-policy data, (b) providing no guidance at all, or (c) always providing guidance?
+\end{enumerate}
+
+Addressing these questions, our study yields three key contributions. First, we show that {\bf improvements during RLVR are primarily driven by self-distillation}: models learn to compress pass@$k$ into pass@1 by shifting probability mass toward answers they could already reach with multiple attempts. Second, we find that {\bf pass@$k$ itself can be significantly improved through selective guidance}: when the model fails all $k$ attempts, providing a hint in-context—while still requiring it to derive the reasoning chain from scratch—helps it discover successful trajectories that remain unreachable through naive sampling. Third, synthesizing these insights, {\bf we introduce \text{Guide}}, a training algorithm that uses guided rollouts on failure to increase pass@$k$, thereby expanding the pool of answers available for self-distillation. \text{Guide} accelerates learning in RLVR by turning unreachable solutions into reachable ones, and by carefully correcting the importance sampling ratio, we enable the model to subsequently learn them without guidance. We validate \text{Guide} across math benchmarks
+and provide theoretical and empirical analysis of its learning efficiency.
+
+\section{Methods}
+\subsection{Self-Distillation vs. Capability Gain} 
+We study the post-training dynamics that govern LLMs learning to solve new tasks. We measure this ability as the rewards $\mathcal{R}$ acquired from an environment, such as the test set of a benchmark. Specifically, we are interested in how an LLM learns to solve \textit{new} problems during RL. To this end, we define $\mathcal{R}^{net}$ as the sum of \textit{net new} rewards acquired \textit{after} RL for a policy $\pi_{\text{RL}}$
+\begin{equation}
+    \mathcal{R}^{\text{net}} = 
+    \underbrace{\sum_{i \in U^{\pi_{\text{init}}}} \mathbb{I}[\hat{y}_i^{\pi_{\text{RL}}} = y_i]}_{\text{progress}} 
+    - 
+    \underbrace{\sum_{j \in S^{\pi_{\text{init}}}} \mathbb{I}[\hat{y}_j^{\pi_{\text{RL}}} \neq y_j]}_{\text{regression}}
+\end{equation}
+
+where $U^{\pi_{\text{init}}}$ is the set of indices of unsolved problems prior to RL and $S^{\pi_{\text{init}}}$ is the set of indices of solved problems prior to RL. We define solved and unsolved here via pass@1 correctness. Note that $\mathcal{R}^{net}$ can be calculated against both training data and test data and in practice is equal to the change in accuracy before and after training.
+
+Note that the progress term can be decomposed into problems that have at least one correct solution in a sample
+$ \mathcal{Y}_i = \{ \hat{y}_1, \dots, \hat{y}_k \}$
+of $k$ responses from $\pi_{\text{init}}$ to the same prompt (i.e. pass@$k$ = 1) and problems that have no correct solutions in the sample (i.e. pass@$k$ = 0).
+\begin{equation}
+\underbrace{\sum_{i \in U^{\pi_{\text{init}}}} \mathbb{I}[\hat{y}_i^{\pi_{\text{RL}}} = y_i]}_{\text{progress}} 
+=
+\underbrace{\sum_{i \in U^{\pi_{\text{init}}}} \mathbb{I}\left[\exists\, \hat{y} \in \mathcal{Y}_i \text{ s.t. } \hat{y} = y_i \land\; \hat{y}_i^{\pi_{\text{RL}}} = y_i\right]}_{\text{distillation}} 
++
+\underbrace{\sum_{i \in U^{\pi_{\text{init}}}} \mathbb{I}\left[\forall\, \hat{y} \in \mathcal{Y}_i,\, \hat{y} \neq y_i \;\land\; \hat{y}_i^{\pi_{\text{RL}}} = y_i\right]}_{\text{capability gain}}
+\label{eq:progress}
+\end{equation}
+
+In order to understand how RLVR teaches models to solve new reasoning problems in practice, we set $k$ equal to the number of rollouts per problem used during training ($k$ may be set higher and we define effective vs. absolute capability gain in Appendix \S\ref{app:abs_cap_gain}).
+
+Decomposing progress into the above terms enables us to understand the mechanisms driving RLVR. We empirically analyze these components in Section \ref{sec:rlvr_sd} and find that while effective capability gain exists, progress is dominated by self-distillation.
+
+\subsection{Guide: Accelerating learning with guidance on failure}
+Inspired by our empirical results showing that self-distillation dominates learning of new problems during RLVR (see Figure \ref{fig:distill_capgain_pct}), concurrent work showing similar results \cite{yue2025does}, and a rich history of success in RL of using off-policy data to improve training efficiency \cite{lillicrap2015continuous}, we seek to increase the proportion of correct rollouts during RL. We hypothesize that a particularly effective means to do this will be by \textit{guiding} the policy with a prompt-specifc hint, $h$, such that the model is required to reach the solution in its own terms: $\pi_\theta(o_{i,t} \mid q, h, o_{i,<t})$. In an initial validation of this hypothesis, we find that including hints significantly improves pass@k, as shown in Figure \ref{fig:untrained_guidance}.
+To this end, we derive a new class of online RL training algorithms which we call \text{Guide}. We describe the general form and a specialization to PPO in Appendix \S \ref{app:Guide}. Further, we carefully analyze a specialization of \text{Guide} to GRPO in which we (1) provide guidance on unsolved prompts and (2) apply an off-policy importance weight
+so that samples drawn with guidance still optimize performance \emph{without}
+guidance, as shown in Algorithm \ref{alg:ggrpo}.
+
+\paragraph{GRPO}  %maybe move this to intro or related work?
+In typical RLVR with GRPO, for each question \(q\), we sample \(k\) outputs \(\{o_i\}_{i=1}^{k}\) from the old policy \(\pi_{\theta_{\text{old}}}(\cdot\mid q)\) and score them, yielding rewards \(\{r_i\}_{i=1}^{k}\).
+We apply per‑prompt \(z\)-normalization and set the token-level advantages $\hat{A}_{i,t}$ for all tokens $t$ in each output $o_i$ equal to the corresponding normalized reward: 
+\begin{equation}
+\hat A_{i,t} \;=\; \tilde r_i
+\;=\; \frac{r_i-\mu_r}{\sigma_r},
+\qquad
+t = 1,\dots,|o_i|.
+\label{eq:z_norm_adv}
+\end{equation}
+
+
+The GRPO objective maximized during policy updates is defined as:
+\begin{equation}
+\label{eq:grpo_objective}
+\mathcal{J}_{\text{GRPO}}(\theta) = \mathbb{E}_{q\sim P(Q), \{o_i\}_{i=1}^{k}\sim\pi_{\theta_{\text{old}}}(o|q)}
+\left[
+\frac{1}{k}\sum_{i=1}^{k}\frac{1}{|o_i|}\sum_{t=1}^{|o_i|}\left\{
+\min\left[\frac{\pi_{\theta}(o_{i,t}|q,o_{i,<t})}{\pi_{\theta_{\text{old}}}(o_{i,t}|q,o_{i,<t})}\hat{A}_{i,t},\right.\right.\right.
+\end{equation}
+\begin{equation*}    
+\left.\left.\left.
+\text{clip}\left(\frac{\pi_{\theta}(o_{i,t}|q,o_{i,<t})}{\pi_{\theta_{\text{old}}}(o_{i,t}|q,o_{i,<t})}, 1-\varepsilon, 1+\varepsilon\right)\hat{A}_{i,t}\right]
+-\beta D_{KL}\left[\pi_\theta\|\pi_{\text{ref}}\right]\right\}\right],
+\end{equation*}
+
+
+where $\varepsilon$ and $\beta$ are hyperparameters controlling clipping and KL regularization, respectively.
+
+\paragraph{\text{Guide}} We make the observation that because we want the model to perform well without guidance, the guided trajectories are off-policy. To avoid biasing the gradient, we should appropriately compute the importance weight (Sutton \& Barto 1998). To this end, we modify the GRPO objective to
+\begin{equation}
+\mathcal{J}(\theta) = 
+\mathbb{E}_{q \sim P(Q)} 
+\left[
+\frac{1}{k} \sum_{i=1}^{k} \frac{1}{|o_i|} \sum_{t=1}^{|o_i|}
+\left\{
+\min\left[
+\underbrace{
+\textcolor{blue}{
+\frac{\pi_\theta(o_{i,t} \mid q, o_{i,<t})}
+     {\pi_{\theta_{\text{old}}}(o_{i,t} \mid q, h, o_{i,<t})}
+}}_{\text{importance weight (off-policy correction)}}
+\hat{A}_{i,t},\;
+\right.\right.
+\right.
+\end{equation}
+\[
+\left.\left.\left.
+\text{clip}\left(
+\textcolor{blue}{
+\frac{\pi_\theta(o_{i,t} \mid x_i, o_{i,<t})}
+     {\pi_{\theta_{\text{old}}}(o_{i,t} \mid q, h, o_{i,<t})}
+}, 1-\varepsilon, 1+\varepsilon\right)
+\hat{A}_{i,t}
+\right]
+- \beta\, D_{\text{KL}}\bigl[\pi_\theta \,\|\, \pi_{\text{ref}}\bigr]
+\right\}
+\right],
+\]
+where $h$ indicates some guidance (or hint) suffix appended to the prompt $q$. We unify the two objective functions to form our objective $\mathcal{J}_{\text{Guide}}$
+
+\pagebreak
+
+\begin{equation}
+\label{eq:J_guide}
+\mathcal{J}_{\text{Guide}}(\theta)=
+\mathbb{E}_{q \sim P(Q)}
+\Biggl[
+\frac{1}{k}\!
+\sum_{r \in \mathcal{S}(q)}
+\frac{1}{|r|}\sum_{t=1}^{|r|}
+\Bigl\{
+\min\!\Bigl[
+\underbrace{
+\textcolor{blue}{
+\frac{\pi_\theta\!\bigl(r_t \mid x_q, r_{<t}\bigr)}
+     {\pi_{\theta_{\text{old}}}\!\bigl(r_t \mid s_q, r_{<t}\bigr)}
+}}_{\text{importance weight}}
+\hat A_{r,t},
+\;
+\end{equation}
+\[
+\text{clip }\!\bigl(
+\textcolor{blue}{
+\frac{\pi_\theta(r_t \mid x_q, r_{<t})}
+     {\pi_{\theta_{\text{old}}}(r_t \mid s_q, r_{<t})}
+},
+1-\varepsilon,1+\varepsilon
+\bigr)\hat A_{r,t}
+\Bigr] 
+- \beta\,D_{\!KL}\!\bigl[\pi_\theta \,\|\, \pi_{\text{ref}}\bigr]
+\Bigr\}
+\Biggr],
+\] 
+\noindent where \(\mathcal{S}(q)\) is the set of \(k\) sampled rollouts for prompt \(q\), containing \(k\) plain rollouts \(r \sim \pi_{\theta_{\text{old}}}(\cdot \mid x_q)\) and, if all fail, \(k\) guided rollouts \(r \sim \pi_{\theta_{\text{old}}}(\cdot \mid \tilde x_q)\), where \(x_q\) and \(\tilde x_q\) are the plain and guided prompts respectively, \(s_q \in \{x_q, \tilde x_q\}\) is the prompt used to generate rollout \(r\), \(\hat A_{r,t}\) is the group-normalized advantage at token \(t\), and \(\varepsilon, \beta\) are the PPO-style clipping and KL-regularization hyperparameters. \footnote{We further re-weight importance ratios with an adaptive policy-reshaping detailed in Appendix \S\ref{app:policy_reshape}.}
+\begin{algorithm}[H]
+\caption{\textbf{Guide-GRPO}: Group Relative Policy Optimization with guidance-augmented rollouts on failure}
+\label{alg:ggrpo}
+\small
+\textbf{Input:} initial policy $\pi_{\theta_\text{init}}$; reward model $r_\varphi$;  
+task prompts $\mathcal D$; hyper‑parameters $\varepsilon,\,\beta,\,\mu$,  
+\textcolor{blue}{$k$ roll‑outs per prompt, guidance suffix \texttt{guid}}
+\begin{algorithmic}[1]
+\State $\pi_\theta \gets \pi_{\theta_\text{init}}$
+\For{$\textit{iter}=1,\dots,I$}
+    \State $\pi_{\text{ref}} \gets \pi_\theta$      \Comment{freeze reference}
+    \For{$\textit{step}=1,\dots,M$}
+        \State Sample minibatch $\mathcal D_b \subset \mathcal D$
+        \State $\pi_{\theta_\text{old}} \gets \pi_\theta$ \Comment{snapshot old policy}
+        \State Sample $K$ outputs $\{o_i\}_{i=1}^{K}
+               \sim\pi_{\theta_\text{old}}(\,\cdot\,|\,q)$ for every $q\in\mathcal D_b$
+        \State \textcolor{blue}{Identify unsolved set
+              $U=\{\,q\!\in\!\mathcal D_b :
+              \text{\emph{all} $k$ roll‑outs fail}\}$}
+        \For{$q \in U$}
+            \State \textcolor{blue}{Sample $k$ guidance rollouts $\tilde o \sim \pi_{\theta_\text{old}}(\,\cdot\,|\,\langle q, \texttt{guid} \rangle)$}
+        \EndFor
+        \State Compute rewards $r_i = r_\varphi(o_i)$ (and $r_{\tilde o}$ if present)
+        \State Compute advantages $\hat A_{i,t}$ via group‑relative estimation
+        \For{$\textit{gstep}=1,\dots,\mu$}
+            \State \textcolor{blue}{Update $\pi_\theta$ by maximising the Guide objective in Eq. \ref{eq:J_guide}}
+        \EndFor
+    \EndFor
+\EndFor
+\State \Return $\pi_\theta$
+\end{algorithmic}
+\textbf{Output:} fine‑tuned policy $\pi_\theta$
+\end{algorithm}
+\vspace{-1em}
+Guide injects hints only when all unguided rollouts
+fail, and an importance weight projects those off-policy trajectories
+onto the on-policy gradient direction.  
+This focuses learning signal on the hardest unsolved problems while
+keeping every guided update aligned with the plain-prompt
+objective, thereby achieving faster progress than
+vanilla GRPO. We formalize this notion into the following theorem and provide a proof in Appendix \S\ref{app:guide-theory}:
+
+% \begin{theorem}[Guide-GRPO improves learning efficiency]
+% \label{thm:guide_better}
+% With selective guidance and importance weighting, the one-step expected improvement satisfies
+% \begin{equation}
+% \label{eq:main_result}
+% \mathbb{E}\bigl[\Delta\mathcal{R}_{\text{\emph{Guide}}}\bigr] = \eta\sum_{q\in U} \bigl[ A_q p_q^2 + (1-p_q)^k\,\mathbb{E}[\tilde A_q]\,p_q \bigr]
+%  > \eta\sum_{q\in U} A_q p_q^2 = \mathbb{E}\bigl[\Delta\mathcal{R}_{\text{\emph{Vanilla}}}\bigr],\end{equation}
+% for sufficiently small $\eta$.
+% \end{theorem}
+% \noindent where \(p_q\) is the plain success probability, \(\tilde A_q\) the guided advantage, \(A_q\) the plain advantage, \(k\) the number of rollouts, and \(U\) the set of unsolved prompts.
+\begin{theorem}[Guide-GRPO improves learning efficiency]
+\label{thm:guide_better}
+Let \(U\) be the set of prompts \(q\) unsolved by the current policy \(\pi_\theta\). Suppose that, in expectation over unsolved prompts and the group $G_q$ of guided and unguided trajectories, the guided advantage is positive:
+\[
+\mathbb{E}_{q \in U} \left[\, \mathbb{E}_{y \sim \pi_\theta(\cdot \mid \tilde{x}_q)} \left[\, \tilde{A}_q(y;\, G_q) \,\right] \,\right] > 0.
+\]
+Then for all \(\eta\) sufficiently small, the one-step expected improvement, \(\Delta \mathcal{R}\), under Guide-GRPO exceeds that of Vanilla GRPO, to first order in \(\eta\):
+\vspace{0.5em}
+\begin{equation}
+\mathbb{E}[\Delta\mathcal{R}_{\text{\emph{Guide}}}] > \mathbb{E}[\Delta\mathcal{R}_{\text{\emph{Vanilla}}}],
+\end{equation}
+\vspace{0.25em}
+where
+\begin{align}
+\mathbb{E}[\Delta\mathcal{R}_{\text{\emph{Vanilla}}}] &= \eta \sum_{q \in U} A_q\, p_q^2 + \mathcal{O}(\eta^2), \\
+\mathbb{E}[\Delta\mathcal{R}_{\text{\emph{Guide}}}] &= \eta \sum_{q \in U} \left[ A_q\, p_q^2 + (1 - p_q)^k\, \mathbb{E}_{y \sim \pi_\theta(\cdot \mid \tilde x_q)}[\tilde A_q(y)]\, p_q \right] + \mathcal{O}(\eta^2),
+\end{align}
+and \(p_q = \mathbb{P}_{y \sim \pi_\theta(\cdot \mid x_q)}\left[f(y) = y_q^*\right]\) denotes the success probability under the unguided policy.
+\end{theorem}
+Note that Guide's relative gain over vanilla GRPO increases when
+\begin{itemize}
+  \item \emph{failure probability} $(1-p_q)^k$ is large (hard prompts),
+  \item \emph{guided advantage} $\mathbb{E}[\tilde A_q]$  is large on average relative to the full rollout group,
+  \item the success probability under the unguided policy $p_q$ is non-zero (so credit
+        can propagate).
+\end{itemize}
+
+\vspace{-1mm}
+\section{Experiments}
+\label{sec:results}
+
+\subsection{RLVR Drives Learning Progress Mainly via Self‑Distillation}
+\label{sec:rlvr_sd}
+
+We investigate the mechanisms driving performance improvements in models trained using RLVR, explicitly decomposing the observed improvements into two measurable effects: capability gains and self-distillation. Concretely, for the experiments in this section, we define capability gain and self-distillation as follows: 
+
+\paragraph{Capability gain} \label{capability_gains_definition} The count of problems that are initially unsolved by the untrained policy, even with multiple attempts \texttt{pass@16}, which subsequently become solvable by the RLVR‑trained policy within a single sample (\texttt{pass@1}).
+\footnote{In practice, we compute the unsolved set $U$ using pass@1 \& temperature 0, the \textit{potential} distill set $D$ with pass@16 \& temperature 1 (to mirror training settings), and \textit{potential} capability gain set $G = U - D$. Solved problems are defined by pass@1 temperature 0.}
+
+\paragraph{Self‑distillation}\label{distillation_definition} The count of problems solvable by the untrained policy with multiple sampling attempts (\texttt{pass@16}) that later become solvable with just one attempt (\texttt{pass@1}) during RLVR training.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{plots/subplots_distill_capgain_all.png}
+  \caption{Capability gain (left), self-distillation (middle), and combined progress (capability gain + self-distillation; right) across training steps on all test sets.}
+  \label{fig:distill_capgain_pct}
+  \vspace{-3mm}
+\end{figure}
+
+\subsubsection{Experimental setup}
+
+For our base models, we use Qwen 2.5 \cite{model:Qwen25} at five model scales, 0.5B, 3B 7B, 32B, and 72B as the starting untrained policies. Each run is trained for 256 steps using the GRPO training objective on a dataset composed of math, stem, and coding tasks. We evaluate every 16 training steps on the following benchmarks: \textsc{GSM8K} \cite{gsm8k}, \textsc{Math500} \cite{math500}, \textsc{AIME24} \cite{aime24}, \textsc{AIME25} \cite{aime25}, \textsc{AMC23} \cite{amc23}, \textsc{GPQA-Diamond} \cite{gpqa}, \textsc{OlympiadBench} \cite{olympiadbench}, \textsc{LeetCode} \cite{guo2024deepseek}, \textsc{LiveCodeBench} \cite{livecodebench}, and \textsc{HumanEval} \cite{humaneval}. To measure variance in capability gain and self-distillation across runs (as defined in \ref{capability_gains_definition}), we perform 10 independent trials, each with its own random seed. We first generate 100 rollouts at temperatures 1.0 and 0.0 for every problem in the full test set. Then for each trial, to compute pass@1, we randomly sampling one of the 100 temperature 0.0 rollouts and judge its correctness; to compute pass@16, we randomly sample 16 trajectories from the temperature 1.0 rollouts and judge if any of the sample are correct. We apply this sampling procedure independently across the 10 trials and aggregate results to report the overall mean and standard error of capability gain, distillation, and progress counts on the full test set. Additional training hyper-parameters and implementation details are provided in Appendix \S~\ref{app:rlvr_training_details}.
+
+\subsubsection{Analysis}
+Figure \ref{fig:distill_capgain_pct} decomposes net performance gains (Eq. \ref{eq:progress}) into capability gain and self-distillation. We make the following observations:  
+
+\paragraph{Self-distillation dominates} Across all four Qwen sizes, the majority of the progress improvement comes from converting answers that were already reachable within $\le 16$ untrained samples into the trained pass@1 at temp 0. Among the models evaluated, Qwen 7B and Qwen 3B shows the highest gain via self-distillation, whereas the larger models (Qwen 32B and Qwen 72B) showed comparatively fewer gains from self-distillation. In contrast, every model learns to solve some problems it could not solve at initialization, with the 0.5B model gaining the most in relative terms. Nevertheless, capability gain remains a minority contributor at every scale, indicating that RLVR primarily re-allocates probability mass rather than discover truly novel solutions at the studied $k$.
+
+\paragraph{Headroom dictates returns and shrinks with capability} We first note that the unsolved set $|U|$ contracts sharply as model size grows: 0.5B begins with 3195 unsolved items, 3B with 2150, 7B with 1913, 32B with 1617, and 72B with just 1532. Because each model converts a similar fraction of its own $|U|$ ($\approx25\%$), the absolute count of pass@1 lift (Figure \ref{fig:distill_capgain_pct}; right) inevitably drops at larger scale. Progress for stronger models therefore hinges on introducing harder examples that replenish $|U|$ and expose new reasoning gaps.
+
+\subsection{Guide-GRPO towards mathematical reasoning}
+\label{sec:guide-exp}
+
+Leveraging the observation that the majority of the performance gain in RLVR training is from self-distillation, we seek to increase the proportion of correct trajectories during RL training while remaining close to the policy's sampling distribution. In this section, we first validate the hypothesis that prompt-specific guidance in the model's context improves pass@k (Figure \ref{fig:untrained_guidance}), and then utilize this improvement to empirically demonstrate Guide-GRPO's (Algorithm \ref{alg:ggrpo}) effectiveness towards improving mathematical reasoning for language policy models (Table \ref{tab:main_results} and Table \ref{tab:main_results_large}).
+
+\begin{figure}[t!]
+\vspace{-2mm}
+  \centering
+  \includegraphics[width=0.9\textwidth]{plots/hint_v_nohint.pdf}
+  \caption{Impacts of guidance on correct rollouts. \textbf{Left}: Guidance vs. no-guidance pass@k performance on Qwen-2.5-Math-7B on 10K randomly sampled training examples from open-r1/OpenR1-Math-220k \cite{openr1}. Including problem-specific guidance into the context increases unbiased pass@$k$. \textbf{Middle}: Guided rollouts solve more previously unsolvable questions (capability gain), with gains growing in k. \textbf{Right}: Guidance also improves performance on the distillation subset in comparison to unguided model.}  
+  \label{fig:untrained_guidance}
+\end{figure}
+
+\subsubsection{Experimental Setup}
+\label{subsec:guide_experimental_setup}
+
+Our training data consists of the default subset of OpenR1-Math-220k \cite{openr1}, comprising 93.7K math reasoning tasks. For each entry, we extract the prompt, ground-truth answer, and the human-authored reference solution. For guidance generation, we prompt GPT-4o to produce pedagogically-inspired hints that mimic expert tutoring strategies -- providing high-level conceptual direction and problem-solving frameworks without revealing solution paths (full instructions and guidance examples are in Appendix \S \ref{app:guidance_generation}). 
+
+Our base model, Qwen-2.5-Math-7b \cite{model:Qwen25}, is a large language model pre-trained and fine-tuned for complex mathematical reasoning. We establish a comprehensive comparative framework: (1) standard GRPO training, (2) GRPO with Filtering -- a technique shown to improve training efficiency by discarding prompts for which the rollouts are all incorrect or all correct \cite{yu2025dapoopensourcellmreinforcement}, (3) our proposed Guide-GRPO approach, and (4) a supervised fine-tuning (SFT) baseline trained directly on human-authored solutions. This multi-faceted comparison allows us to evaluate whether transforming expert solutions into guided hints yields performance advantages over both direct imitation of expert reasoning and optimized reinforcement learning approaches. Moreover, to assess the robustness of our method to increasing computational resources, we conduct experiments that increase context length (4K $\xrightarrow{}$ 8K) followed by an increase in context length \textit{and} model size (7B $\xrightarrow{}$ 32B). Additional training hyper-parameters and implementation details are provided in Appendix \S \ref{app:guide-exp}.
+
+\subsubsection{Results}
+
+\begin{table}[H]
+    \centering
+    \caption{Comparison of Pass@1 (greedy decoding) and Pass@16 (temperature 1.0) performance on several math benchmarks across different training algorithms. SFT is trained on the reference solution, Filter-GRPO uses the standard GRPO objective with filtering of all incorrect and all correct groups, GRPO is without filtering, Base is the base model (Qwen-2.5-Math-7B), and Guide-GRPO is our method. The performance for Pass@1 is averaged over 5 independent samples. Table \ref{app:main_results_full} contains the full results with 95\% confidence intervals. Bold values indicate best performance.}
+    \scalebox{0.9}{
+    \begin{tabular}{llccccc}
+    \toprule
+    \textbf{Benchmark} & \textbf{Metric} & \textbf{Guide-GRPO} & \textbf{Filter-GRPO} & \textbf{GRPO} & \textbf{SFT} & \textbf{Base} \\
+    \midrule
+    \multirow{2}{*}{MATH500}     & P@1   & \textbf{82.68} & 80.80          & 79.00          & 72.80 & 68.80 \\
+                                 & P@16  & \textbf{93.60} & 92.60          & 90.80          & 87.00 & 89.60 \\ \addlinespace[3pt]
+    \multirow{2}{*}{GSM8K}       & P@1   & 91.43          & \textbf{91.84} & 91.71          & 88.22 & 83.21 \\
+                                 & P@16  & \textbf{97.73} & 96.59          & 96.97          & 96.89 & 97.19 \\ \addlinespace[3pt]
+    \multirow{2}{*}{MINERVA}     & P@1   & 32.35          & 30.51          & \textbf{32.72} & 26.25 & 26.47 \\
+                                 & P@16  & \textbf{47.43} & 43.75          & 45.96          & 35.29 & 43.01 \\ \addlinespace[3pt]
+    \multirow{2}{*}{OLYMPIAD}    & P@1   & \textbf{43.11} & 40.21          & 39.56          & 35.05 & 33.07 \\
+                                 & P@16  & \textbf{64.59} & 60.89          & 61.33          & 50.52 & 52.15 \\ \addlinespace[3pt]
+    \multirow{2}{*}{AMC}         & P@1   & \textbf{63.61} & 60.24          & 62.41          & 50.36 & 47.47 \\
+                                 & P@16  & \textbf{84.34} & \textbf{84.34} & \textbf{84.34} & 69.88 & 78.31 \\ \addlinespace[3pt]
+    \multirow{2}{*}{AIME 24}     & P@1   & \textbf{30.67} & 18.67          & 26.67          & 11.33 & 6.67  \\
+                                 & P@16  & 56.67          & 53.33          & \textbf{60.00} & 23.33 & 33.33 \\ \addlinespace[3pt]
+    \multirow{2}{*}{AIME 25}     & P@1   & \textbf{13.33} & \textbf{13.33} & \textbf{13.33} & 6.67  & 3.33  \\
+                                 & P@16  & \textbf{46.67} & 33.33          & 30.00          & 13.33 & 13.33 \\ \midrule
+    \multirow{2}{*}{Macro Avg.}  & P@1   & \textbf{51.03} & 47.94          & 49.34          & 40.42 & 38.43 \\ \addlinespace[3pt]
+                                 & P@16  & \textbf{70.15} & 66.40          & 67.06          & 53.75 & 58.13 \\ \addlinespace[3pt]
+    \multirow{2}{*}{Micro Avg.}  & P@1   & \textbf{70.66} & 69.76          & 69.59          & 63.80 & 61.16 \\
+                                 & P@16  & \textbf{83.29} & 81.23          & 81.44          & 76.28 & 78.31 \\
+    \bottomrule
+    \end{tabular}
+    }
+    \label{tab:main_results}
+\end{table}
+
+
+
+
+% \paragraph{Guide-GRPO leads to more efficient learning} 
+
+\paragraph{Task-specific guidance increases correct rollouts} Figure \ref{fig:untrained_guidance} demonstrates that introducing targeted, in-context guidance significantly increases the number of correct rollouts. We then dissect how these hints affect both capability gain and self-distillation (see Section \ref{sec:rlvr_sd}). Our analysis reveals that guidance not only helps the model solve previously unreachable prompts (capability gain) but also reinforces consistency on already-solvable ones (self-distillation). Building on this insight, we apply Guide-GRPO (see Section \ref{sec:guide-exp}) to transfer performance improvements observed under guidance to directly improve the base policy. More details about this experimental setup are described in Appendix \ref{app:guide-exp}.
+
+\paragraph{Guide-GRPO leads to better test-time performance} As shown in Table \ref{tab:main_results}, Guide-GRPO consistently outperforms all baselines across both pass@1 and pass@16 metrics on a wide range of math benchmarks. Notably, Guide-GRPO achieves a 3\% absolute improvement in pass@1 on Olympiad-level questions and a 13\% improvement in pass@16 on AIME 25, relative to the next best performing baseline. On aggregate, it achieves the highest macro-average (51.03 pass@1, 70.15 pass@16) and micro-average (70.66 pass@1, 83.29 pass@16) scores, highlighting robust gains across both balanced and volume-weighted evaluations.
+
+These results demonstrate that Guide-GRPO is effective at integrating prompt-specific guidance into the training process, enabling the resulting policy to generalize better to difficult mathematical reasoning task -- even without access to guidance at test time. Additionally, its strong pass@k performance, combined with our observation that RLVR primarily drives progress through self-distillation, suggests that Guide-GRPO promotes better exploration and solution diversity, which are key to continued improvement in reasoning-centric domains.
+
+\paragraph{Guide-GRPO improvements scale with context length and model size}
+The results in Table \ref{tab:main_results_large} demonstrates Guide-GRPO's consistent improvements over vanilla GRPO when scaling to larger context lengths (4K $\xrightarrow{}$ 8K) and model sizes (7B $\xrightarrow{}$ 32B). For the 32B model, Guide-GRPO achieves 3.39 percentage point improvement in macro-average Pass@1 (56.26\% vs 52.87\%) and 1.89 percentage point improvement in micro-average Pass@1 (76.36\% vs 74.47\%). More generally, the improvements are consistent across both Pass@1 and Pass@16 metrics, with Guide-GRPO showing gains ranging from 1-4 percentage points across all configurations. These results strengthen the empirical evidence that Guide-GRPO's test-time generalization scales effectively with increased computational resources along both context length and parameter count dimensions.
+
+\begin{table}[]
+    \centering
+    \caption{Comparison of Pass@1 (greedy decoding) and Pass@16 (temperature 1.0) performance on several math benchmarks with larger context length (8K) across model sizes (7B and 32B). The performance for Pass@1 is averaged over 5 independent samples. Table \ref{app:main_results_full_large} contains the full results with 95\% confidence intervals. Bold values indicate best performance.}
+    \scalebox{0.9}{
+    \begin{tabular}{llcccc}
+    \toprule
+    \textbf{Benchmark} & \textbf{Metric} & \textbf{Guide-32B-8K} & \textbf{GRPO-32B-8K} & \textbf{Guide-7B-8K} & \textbf{GRPO-7B-8K}  \\
+    \midrule
+    \multirow{2}{*}{MATH500}     & P@1  & \textbf{85.08} & 84.00 & 83.08  & 79.96 \\
+                                 & P@16 & 94.80          & \textbf{95.20} & 94.60 & 94.40 \\ \addlinespace[3pt]
+    \multirow{2}{*}{GSM8K}       & P@1  & \textbf{95.60} & 95.60          & 92.25 & 91.46 \\
+                                 & P@16 & \textbf{98.03} & 97.88          & 97.80 & 98.18 \\ \addlinespace[3pt]
+    \multirow{2}{*}{MINERVA}     & P@1  & \textbf{35.59} & 35.51          & 29.41 & 30.15 \\
+                                 & P@16 & \textbf{50.00} & 49.63          & 49.26 & 48.53 \\ \addlinespace[3pt]
+    \multirow{2}{*}{OLYMPIAD}    & P@1  & \textbf{54.52} & 48.06          & 43.67 & 42.37 \\
+                                 & P@16 & \textbf{71.11} & 68.89          & 66.37 & 65.33 \\ \addlinespace[3pt]
+    \multirow{2}{*}{AMC}         & P@1  & \textbf{65.06} & 63.61          & 62.65 & 53.73 \\
+                                 & P@16 & \textbf{87.95} & \textbf{87.95}   & 90.36 & 89.16 \\ \addlinespace[3pt]
+    \multirow{2}{*}{AIME 24}     & P@1  & \textbf{32.67} & 20.00          & 16.67 & 26.67 \\
+                                 & P@16 & \textbf{66.67} & 60.00          & 63.33 & 53.33 \\ \addlinespace[3pt]
+    \multirow{2}{*}{AIME 25}     & P@1  & \textbf{25.33} & 23.33          & 19.33 & 20.67 \\
+                                 & P@16 & \textbf{50.00} & 43.33          & 43.33 & 30.00 \\ \midrule
+    \multirow{2}{*}{Macro Avg.}  & P@1  & \textbf{56.26} & 52.87          & 49.58 & 49.29 \\ \addlinespace[3pt]
+                                 & P@16 & \textbf{74.08} & 71.84          & 72.15 & 68.42 \\ \addlinespace[3pt]
+    \multirow{2}{*}{Micro Avg.}  & P@1  & \textbf{76.36} & 74.47          & 71.15 & 69.89 \\
+                                 & P@16 & \textbf{85.63} & 84.94          & 84.29 & 83.84 \\
+    \bottomrule
+    \end{tabular}
+    }
+    \label{tab:main_results_large}
+\end{table}
+
+\paragraph{Guide-GRPO demonstrates better train-time metrics} Figure \ref{fig:train-metrics} reveals an interesting training trajectory for Guide-GRPO. While initially exhibiting lower rollout accuracy without guidance, Guide-GRPO ultimately surpasses standard GRPO methods as training progresses. This performance crossover indicates our selective guidance injection approach effectively updates policy weights, enabling the model to perform better independently without requiring guidance at inference time. Notably, Guide-GRPO maintains consistently higher entropy throughout training while steadily increasing response length. This combination of enhanced entropy and improved performance, both during training and testing, suggests that Guide-GRPO preserves exploratory capacity for novel solutions while achieving superior results across diverse mathematical reasoning tasks.
+
+\paragraph{Training dynamics reveal critical convergence factors for Guide-GRPO} Our investigation into various policy loss formulations uncovered specific configurations that lead to consistent training instability. Figure \ref{fig:training-dynamics} in Appendix \S \ref{appsec:training_dynamics} illustrates the reward trajectories across different settings, highlighting two critical factors affecting convergence:
+
+\begin{itemize}[leftmargin=2em]    
+    
+    \item \textbf{Importance weighting relative to guided distribution} -- Constructing importance weights for guided trajectories relative to old policy weights conditioned solely on the prompt introduces significant training instability. Since the sampled trajectories originate from the old policy conditioned on both prompt and guidance—rather than just the prompt—the resulting probability ratios between current and old policy weights misrepresent the true gradient direction along the sampled trajectory, leading to suboptimal updates. A theoretical support is detailed in Appendix \S \ref{app:guide-theory}.
+    
+    \item \textbf{PPO-Clip mechanism destabilizes guided trajectories} -- When incorporating guided trajectories with importance weighting relative to the sampling distribution, we observe that PPO-clipping causes training divergence at approximately 50 steps. This phenomenon aligns with theoretical expectations: guided trajectories inherently generate smaller probability ratios, causing the minimum clip operation to artificially inflate most token probability ratios, thereby triggering unstable gradient updates. We mitigated this issue by removing ratio clipping, which empirically produced stable training outcomes. 
+
+\end{itemize}
+
+\paragraph{Threshold for guidance} Our ablation across three guidance thresholds (All Incorrect, Mostly Incorrect, and Always) reveals optimal performance when guidance is applied only when all standard rollouts fail, as shown in Table \ref{tab:guidance_ablation}. While "Mostly Incorrect" performs comparably, unconditional guidance significantly impairs results. Excessive guidance handicaps learning by preventing the model from developing robust reasoning. Conversely, strategic guidance only for entirely incorrect samples provides essential signal when the model's sampling distribution completely misses valid solutions, providing exposure to guided solution traces to problems beyond the current policy's capability while still incentivizing independent exploration in all other cases.
+
+
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.9\linewidth]{plots/combined_training_figs.pdf}
+    \caption{Comparison of Guide-GRPO with baseline methods across training steps (400 total). Left: Rollout accuracy without guidance shows Guide-GRPO ultimately outperforming baselines despite lower initial performance. Middle: Generation entropy remains consistently higher for Guide-GRPO, indicating better solution diversity. Right: Response token length increases for Guide-GRPO in later training stages. Shaded regions represent confidence intervals.}
+    \label{fig:train-metrics}
+    \vspace{-2mm}
+\end{figure}
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \setlength{\tabcolsep}{10pt}
+    \renewcommand{\arraystretch}{1.15}
+\caption{Performance comparison of various guidance threshold strategies. The "All Incorrect" strategy applies guidance only when all original prompt rollouts fail; "Mostly Incorrect" applies guidance when accuracy falls below 25\%; and "Always" unconditionally applies guidance to all rollouts. Bold values indicate best performance.}
+    \scalebox{1.1}{
+    \begin{tabular}{llccc}
+        \toprule
+         & \textbf{Metric} & \textbf{All Incorrect} & \textbf{Mostly Incorrect} & \textbf{Always} \\
+         \midrule
+         \multirow{2}{*}{Macro Avg.}  & P@1  & \textbf{51.03} & 50.48 & 40.97   \\
+                                      & P@16 & \textbf{70.15} & 69.86 & 60.03   \\ \addlinespace[3pt]
+         \multirow{2}{*}{Micro Avg.}  & P@1  & \textbf{70.66} & 70.14 & 63.18   \\
+                                      & P@16 & \textbf{83.29} & \textbf{83.29} & 80.72   \\
+        \bottomrule
+    \end{tabular}
+    }
+    \label{tab:guidance_ablation}
+\end{table}
+
+
+\section{Related Work}
+\paragraph{Reinforcement Learning for LLM Reasoning}
+Recent advances in reinforcement learning approaches \cite{ziegler2019finetuning, ouyang2022training, abdulhai2023lmrl, pmlr-v235-zhou24t, sun2024aligning} have demonstrated remarkable progress in enhancing LLMs’ reasoning capabilities. OpenAI-o1 \cite{openai2024o1} and DeepSeek-R1 \cite{guo2025deepseekr1} have generated state-of-the-art results in complex reasoning tasks such as in math, coding, etc. by pioneering the use of Reinforcement Learning from Verifiable Rewards (RLVR) \cite{lambert2024tulu3, du2025kimi, guo2025deepseekr1, openai2024o1}, in which the reward is computed using a rule-based verification function \cite{cobbe2021training, austin2021program, gehring2024rlef}. Previous works have shown that models trained with RLVR have surpassed those trained with previous approaches (such as supervised finetuning (SFT) or reinforcement learning from human feedback (RLHF)) in terms of generalization capacity and performance \cite{chu2025sftmemorizesrlgeneralizes, snell2025scaling}. Some works also provide frameworks for the distillation of knowledge from pass$@k$ into pass@1 via expert iteration \cite{zelikman2022star, gulcehre2023rest, openai2024rft, singh2024beyond, hosseini2024vstar, zhang2024restmcts} to improve a language model’s ability to solve challenging reasoning problems autonomously. 
+
+
+\paragraph{Learning Mechanisms for Reinforcement from Verifiable Rewards}
+Building upon the increasing traction of RLVR in the reasoning space, some works have addressed the fundamental dynamics of improvements seen from RLVR \cite{yue2025does, zhao2025echo, dang2025assessing}, claiming that RLVR boosts sampling efficiency by biasing the model’s output distribution toward paths that are more likely to yield rewards but reduces the overall reasoning capacity boundary at very high $k$ ($=256$) \cite{yue2025does}. We corroborate the results regarding sampling efficiency in our work as well, revealing that while capability gain exists in the lower $k$ range ($<=16$) across multiple domains (math, coding, STEM, etc.) and model scales, learning to solve new problems via RLVR is dominated by self-distillation of pass@k performance into pass@1 performance. As a result, we also approach methods to induce capability gain and thus propose the technique of Guide to adaptively incorporate hints on failure to surpass gains made just by self-distillation.
+
+
+\paragraph{Reinforcement Learning for LLMs with Off-Policy Data}
+A variety of off-policy reinforcement learning techniques such as DPO \cite{rafailov2023direct} and variants of on-policy algorithms like Tapered Off-Policy REINFORCE \cite{leroux2025tapered} have been applied to LLMs recently. Off-policy methods yield the advantage of enabling better sample efficiency by learning from experiences collected by different policies, but at the cost of potential increased instability. One recent work \cite{yan2025luffy} targets integrating high-quality off-policy trajectories with policy shaping via regularized importance sampling. In contrast, our method leverages guidance in context, which we hypothesize has the potential to bridge the gap in benefits between on-policy and off-policy learning than fully off-policy incorporation and can be applied to training settings in which no more power teacher model exists to distill from. Thus we focused on studying how to improve model performance independent of directly distilling from a much stronger model such as R1.
+
+\section{Future Work}
+\label{sec:limiations}
+While Guide-GRPO demonstrates strong empirical and theoretical performance on mathematical reasoning, several directions remain open. First, future work should more deeply investigate the effect of the quality and nature of guidance on model progress during RL. Future methods may dynamically generate guidance targeted at specific reasoning failures in the policy’s trajectories within a multi-agent RL setting.
+% evolve based on policy progress or target specific reasoning failures.
+Extending Guide to other domains such as code generation, agents, or even robotics could test its generality.  In these initial experiments we have only evaluated Guide on models at 32B-parameter scale and at context lengths up to 8k due to compute limitations. Scaling studies are needed to understand how the effectiveness of \text{Guide} varies with model size, context length, and compute scale.
+
+\section{Conclusion}
+We introduced \text{Guide}, a general framework for incorporating selective, in-context guidance into reinforcement learning of reasoning models. By augmenting rollouts only when all unguided attempts fail and applying principled off-policy correction, Guide-GRPO improves sample efficiency, pass@k, and generalization—even without guidance at test time. Theoretically and empirically, we show that guidance-augmented rollouts can accelerate capability gain and unlock more advanced reasoning skills beyond what traditional GRPO alone achieves.
+
+\begin{ack}
+The authors thank Karl J. Obermeyer for his detailed feedback on the theorem and Summer Yue for critical feedback on the research scope.
+\end{ack}
+
+% \clearpage
+\bibliographystyle{unsrt}
+\bibliography{references}
+
+\medskip
+
+
+{
+\small
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\appendix
+\newpage 
+\section{Guide Algorithms}
+\label{app:Guide}
+
+The Guide algorithm is a general method for adaptively incorporating guidance into online RL. The general form is given as:
+
+\begin{algorithm}[H]
+\caption{Guide}
+\begin{algorithmic}[1]
+\For{iteration=1,2,\dots}
+    \For{step=1,2,\dots,N}
+        \State Run policy $\pi_{\theta_{\text{old}}}$ in environment for $T$ timesteps
+        % \State Compute advantage estimates $\hat{A}_1, \dots, \hat{A}_T$
+    \EndFor
+
+    \State \textcolor{blue}{Identify unsolved set $U=\{q : \text{all rollouts fail}\}$}
+    \State \textcolor{blue}{For $q\in U$, sample guided rollouts $\tilde{o}\sim\pi_{\theta_{\text{old}}}(\cdot|\langle q,\texttt{guid}\rangle)$}
+    \State \textcolor{blue}{Compute unguided $\hat{A}_t$ and guided advantages $\hat{A}_{\tilde{o},t}$ }
+
+    \State Optimize objective \textcolor{blue}{$\mathcal{J}$ in eq. \ref{eq:J_guide}} wrt $\theta$
+
+    \State $\theta_{\text{old}} \leftarrow \theta$
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+Guide can also be specialized to PPO, integrating selective hinting on failed prompts and importance-sampling corrections directly into PPO's training loop. We call this specialization \textbf{Guide-PPO}.
+
+\begin{algorithm}[H]
+\caption{Guide-PPO}
+\label{alg:guide-ppo}
+\small
+\textbf{Input:} initial policy $\pi_{\theta_\text{init}}$; reward model $r_\varphi$; task prompts $\mathcal D$; hyperparameters $\beta$, $\gamma$.
+\begin{algorithmic}[1]
+\For{iteration = 1,2,\dots}
+    \State $\pi_{\theta_\text{old}} \gets \pi_\theta$, \quad $\pi_{\text{ref}} \gets \pi_\theta$
+    \State Sample minibatch $\mathcal{D}_b \subset \mathcal{D}$
+    \State Sample $k$ rollouts $\{o_i\}_{i=1}^{k} \sim \pi_{\theta_\text{old}}(\cdot|q)$ for all $q \in \mathcal{D}_b$
+    \State Compute rewards $r_i = r_\varphi(o_i)$ and estimate advantages $\hat{A}_{i,t}$ via GAE
+
+    \State \textcolor{blue}{Identify unsolved set $U=\{q\in\mathcal D_b: \text{\emph{all} }k\text{ rollouts fail}\}$}
+    \For{$q \in U$}
+        \State \textcolor{blue}{Sample $k$ guidance rollouts $\tilde{o} \sim \pi_{\theta_\text{old}}(\cdot|\langle q, \texttt{guid}\rangle)$}
+        \State \textcolor{blue}{Compute guided rewards $r_{\tilde{o}}=r_\varphi(\tilde{o})$}
+        \State \textcolor{blue}{Recompute advantages $\hat{A}_{\tilde{o},t}$ combining original and guided rollouts}
+    \EndFor
+
+    \State Optimize objective \textcolor{blue}{$\mathcal{J}$ in eq. \ref{eq:J_guide}} wrt $\theta$
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+Where:
+\begin{itemize}
+    \item $\pi_\theta$: policy being trained; $\pi_{\theta_\text{old}}$: sampling policy from previous iteration.
+    \item $\pi_{\text{ref}}$: fixed KL-penalty reference policy.
+    \item $\mathcal{D}_b$: sampled minibatch of prompts.
+    \item $U$: prompts where all original rollouts fail, triggering guided rollouts.
+    \item $\tilde{o}$: rollouts sampled with additional guidance suffix $\texttt{guid}$.
+    \item $\hat{A}_{i,t}$: advantages estimated via Generalized Advantage Estimation (GAE).
+    \item $f(\cdot)$: shaping function correcting importance sampling.
+    \item $\beta$: KL divergence regularization coefficient.
+\end{itemize}
+\newpage
+
+\section{Learning Efficiency of Guidance-Augmented GRPO}
+\label{app:guide-theory}
+
+% ====  PRELIMINARIES  ==== %
+\subsection{Preliminaries}
+Let $\pi_\theta(y \mid x)$ be an autoregressive language model that samples a trajectory of token outputs $y = (y_1, \dots, y_T)$. The success probability $p_q$ is defined as the marginal probability of sampling a trajectory that leads to a correct final answer. Gradients and advantages refer to whole-sequence log-probabilities and returns unless otherwise noted.
+
+For each prompt $q$ with plain input $x_q$ and guided input $\tilde x_q$, define  
+
+\begin{equation}
+\label{eq:pq_defs}
+p_q(\theta) = \mathbb{P}_{y \sim \pi_\theta(\cdot \mid x_q)} \left[f(y) = y_q^* \right], \qquad
+\tilde p_q(\theta) = \mathbb{P}_{y \sim \pi_\theta(\cdot \mid \tilde x_q)} \left[f(y) = y_q^* \right]
+\end{equation}
+
+
+the success probabilities without and with guidance, respectively. For compactness, we overload notation and write
+\begin{equation}
+p_q := p_q(\theta_t),
+\end{equation}
+to denote the scalar success probability at time step \(t\), while retaining \(p_q(\cdot)\) to indicate its dependence on \(\theta\) elsewhere in the analysis.
+
+A vanilla GRPO update with step size $\eta>0$ is
+\begin{equation}
+\label{eq:vanilla_grpo}
+\theta_{t+1} = \theta_t + \eta \sum_{q\in U} A_q\, \nabla_\theta \log \pi_\theta\bigl(y_q \mid x_q\bigr),
+\end{equation}
+where $A_q$ is a group-normalised scalar advantage, computed over both guided and unguided rollouts.  
+
+When \emph{all} $k$ plain rollouts for $q$ fail, \textbf{Guide-GRPO} draws
+$k$ guided rollouts on $\tilde x_q$ and applies an importance weight  
+\begin{equation}
+\label{eq:importance_weight}
+w_q = \frac{\pi_\theta\bigl(y_q \mid x_q\bigr)}{\pi_{\theta_{\text{old}}}\bigl(y_q \mid \tilde x_q\bigr)} > 0
+\end{equation}
+to make the guided gradient on-policy.
+
+
+Let $U$ be the set of problems unsolved by the initial policy.  
+
+% We assume throughout that for all $q \in U$, the expected guided advantage is positive:
+% \begin{equation}
+% \label{eq:expected_advantage_assumption}
+% \mathbb{E}_{y \sim \pi_\theta(\cdot \mid \tilde x_q)}\left[\tilde A_q(y)\right] > 0
+% \end{equation}
+We assume that for each question $q \in U$, the guided outputs have positive expected advantage 
+relative to the full group of both guided and unguided rollouts \( G_q \), i.e.,
+\begin{equation}
+\mathbb{E}_{q \in U} \left[\, \mathbb{E}_{y \sim \pi_\theta(\cdot \mid \tilde{x}_q)} \left[\, \tilde{A}_q(y;\, G_q) \,\right] \,\right] > 0.
+\end{equation}
+This allows for the possibility that guidance may not always help, but is beneficial on average. For brevity, we define:
+\begin{equation}
+\mathbb{E}[\tilde A_q] := \mathbb{E}_{y \sim \pi_\theta(\cdot \mid \tilde{x}_q)} \left[\, \tilde{A}_q(y;\, G_q) \,\right],
+\end{equation}
+
+% =============================  LEMMAS  =============================
+\subsection{Lemmas}
+
+\begin{lemma}[Importance sampling aligns gradients]
+\label{lem:alignment}
+For any guided sample $y_q\sim\pi_{\theta_{\text{old}}}(\,\cdot\,\mid\tilde x_q)$,
+\begin{equation}
+\label{eq:alignment_eqn1}
+% w_q\, \nabla_\theta \log \pi_\theta\bigl(y_q \mid x_q\bigr) = \nabla_\theta \log \pi_\theta\bigl(y_q \mid \tilde x_q\bigr) \cdot w_q,
+\nabla_\theta \log \pi_\theta(y_q \mid \tilde x_q) = w_q\, \nabla_\theta \log \pi_\theta(y_q \mid x_q)
+\end{equation}
+so the guided gradient is a \emph{positive scalar multiple} of the plain gradient.  
+Consequently,
+\begin{equation}
+\label{eq:alignment_cosine}
+\cos\!\Bigl(
+\nabla_\theta \log \pi_\theta(y_q \mid x_q),\,
+w_q\nabla_\theta \log \pi_\theta(y_q \mid x_q)
+\Bigr)
+=1.
+\end{equation}
+\end{lemma}
+
+
+
+\begin{lemma}[Selective guidance outperforms or matches always-guidance]
+\label{lem:selective}
+Let $\tilde A_q^{\text{fail}}$ and $\tilde A_q^{\text{succ}}$ denote the expected guided advantages conditioned on whether all $k$ plain rollouts fail or at least one succeeds, respectively:
+\begin{align}
+\tilde A_q^{\text{fail}} &:= \mathbb{E}_{y \sim \pi_\theta(\cdot \mid \tilde x_q)} \left[ \tilde A_q(y; G_q) \,\big|\, \text{all $k$ plain rollouts fail} \right], \\
+\tilde A_q^{\text{succ}} &:= \mathbb{E}_{y \sim \pi_\theta(\cdot \mid \tilde x_q)} \left[ \tilde A_q(y; G_q) \,\big|\, \text{at least one plain success} \right].
+\end{align}
+Then the expected first-order improvement in the number of unguided solutions is greater for \emph{selective} guidance than for \emph{always} guidance:
+\begin{equation}
+\label{eq:delta_diff_cond}
+\Delta^{\text{sel}} \ge \Delta^{\text{all}}.
+\end{equation}
+Moreover, since $\tilde A_q(y; G_q)$ is computed relative to the full set of guided and unguided rollouts, and the group mean reward is lower when all plain rollouts fail, we have $\tilde A_q^{\text{fail}} \ge \tilde A_q^{\text{succ}}$ by construction.
+\end{lemma}
+
+\begin{proof}
+Selective guidance applies guided updates only when all $k$ plain rollouts fail, so:
+\begin{align}
+\Delta^{\text{sel}} &= \eta \sum_{q \in U} \left[ A_q p_q^2 + (1 - p_q)^k \tilde A_q^{\text{fail}} p_q \right], \\
+\Delta^{\text{all}} &= \eta \sum_{q \in U} \left[ A_q p_q^2 + (1 - p_q)^k \tilde A_q^{\text{fail}} p_q + \left(1 - (1 - p_q)^k\right) \tilde A_q^{\text{succ}} p_q \right].
+\end{align}
+Subtracting,
+\begin{equation}
+\Delta^{\text{sel}} - \Delta^{\text{all}} = - \eta \sum_{q \in U} \left[1 - (1 - p_q)^k \right] \left( \tilde A_q^{\text{fail}} - \tilde A_q^{\text{succ}} \right) p_q.
+\end{equation}
+Each term in the sum is $\le 0$ since the bracketed term is positive and $\tilde A_q^{\text{fail}} \ge \tilde A_q^{\text{succ}}$. Therefore, $\Delta^{\text{sel}} \ge \Delta^{\text{all}}$.
+\end{proof}
+
+
+
+% ===========================  MAIN THEOREM  ==========================
+\subsection{Main Theorem}
+
+% \begin{theorem*}[Guide-GRPO improves learning efficiency]
+% \paragraph{Guide-GRPO improves learning efficiency}
+% \label{thm:guide_better}
+% With selective guidance and importance weighting, the one-step expected improvement satisfies
+% \begin{equation}
+% \label{eq:main_result}
+% \mathbb{E}\bigl[\Delta\mathcal{R}_{\text{\emph{Guide}}}\bigr] = \eta\sum_{q\in U} \bigl[ A_q p_q^2 + (1-p_q)^k\,\mathbb{E}[\tilde A_q]\,p_q \bigr]
+%  > \eta\sum_{q\in U} A_q p_q^2 = \mathbb{E}\bigl[\Delta\mathcal{R}_{\text{\emph{Vanilla}}}\bigr],\end{equation}
+% for sufficiently small $\eta$.
+% \end{theorem*}
+
+% \begin{theorem}[Guide-GRPO improves learning efficiency ]
+\paragraph{Guide-GRPO improves learning efficiency}
+Let \(U\) be the set of prompts \(q\) unsolved by the current policy \(\pi_\theta\). Suppose that, in expectation over unsolved prompts and the group $G_q$ of guided and unguided trajectories, the guided advantage is positive:
+\[
+\mathbb{E}_{q \in U} \left[\, \mathbb{E}_{y \sim \pi_\theta(\cdot \mid \tilde{x}_q)} \left[\, \tilde{A}_q(y;\, G_q) \,\right] \,\right] > 0.
+\]
+Then for all \(\eta\) sufficiently small, the one-step expected improvement, \(\Delta \mathcal{R}\), under Guide-GRPO exceeds that of Vanilla GRPO, to first order in \(\eta\):
+\vspace{0.5em}
+\begin{equation}
+\mathbb{E}[\Delta\mathcal{R}_{\text{\emph{Guide}}}] > \mathbb{E}[\Delta\mathcal{R}_{\text{\emph{Vanilla}}}],
+\end{equation}
+\vspace{0.25em}
+where
+\begin{align}
+\mathbb{E}[\Delta\mathcal{R}_{\text{\emph{Vanilla}}}] &= \eta \sum_{q \in U} A_q\, p_q^2 + \mathcal{O}(\eta^2), \\
+\mathbb{E}[\Delta\mathcal{R}_{\text{\emph{Guide}}}] &= \eta \sum_{q \in U} \left[ A_q\, p_q^2 + (1 - p_q)^k\, \mathbb{E}_{y \sim \pi_\theta(\cdot \mid \tilde x_q)}[\tilde A_q(y)]\, p_q \right] + \mathcal{O}(\eta^2),
+\end{align}
+and \(p_q = \mathbb{P}_{y \sim \pi_\theta(\cdot \mid x_q)}\left[f(y) = y_q^*\right]\) denotes the success probability under the unguided policy.
+% \end{theorem}
+
+\begin{proof}
+Let $\theta_{t+1} = \theta_t + \eta\, g(\theta_t)$ for a small step size $\eta > 0$.  
+We perform a first-order Taylor expansion:
+\begin{align}
+\label{eq:taylor_1} p_q(\theta_{t+1}) &= p_q(\theta_t + \eta\, g) \\
+\label{eq:taylor_2} 
+p_q(\theta_t + \eta\, g) &= p_q(\theta_t) + \eta\, \left\langle \nabla_\theta p_q(\theta_t),\, g \right\rangle + \mathcal{O}(\eta^2) \\
+\label{eq:taylor_3} 
+&= p_q + \eta\, \left\langle \nabla_\theta p_q,\, g \right\rangle + \mathcal{O}(\eta^2).
+\end{align}
+
+Using the log derivative trick:
+\begin{equation}
+\label{eq:log_derivative}
+\nabla_\theta p_q = \mathbb{E}_{y \sim \pi_\theta(\cdot \mid x_q)} \left[ \mathbb{I}[f(y) = y_q^*] \nabla_\theta \log \pi_\theta(y \mid x_q) \right]
+\end{equation}
+
+which for a single trajectory entails:
+\begin{equation}
+\label{eq:grad_expanded}
+p_q(\theta_{t+1}) = p_q + \eta\, p_q\, \langle \nabla_\theta \log \pi_\theta(y_q \mid x_q), g \rangle + \mathcal{O}(\eta^2).
+\end{equation}
+
+Now substitute in the Guide-GRPO update:
+\begin{align}
+\label{eq:g_update1} g &= \sum_{q \in U} A_q \nabla_\theta \log \pi_\theta(y_q \mid x_q) + \sum_{q \in U} (1 - p_q)^k \tilde A_q \nabla_\theta \log \pi_\theta(y_q \mid x_q), \\
+\label{eq:g_update2} &= \sum_{q \in U} \left[ A_q + (1 - p_q)^k \tilde A_q \right] \nabla_\theta \log \pi_\theta(y_q \mid x_q).
+\end{align}
+
+Then:
+\begin{equation}
+\label{eq:dot_product}
+\langle \nabla_\theta \log \pi_\theta(y_q \mid x_q), g \rangle = \left[ A_q + (1 - p_q)^k \tilde A_q \right] \left\| \nabla_\theta \log \pi_\theta(y_q \mid x_q) \right\|^2.
+\end{equation}
+
+Therefore:
+\begin{equation}
+\label{eq:delta_pq}
+p_q(\theta_{t+1}) - p_q = \eta\, p_q \left[ A_q + (1 - p_q)^k \tilde A_q \right] \left\| \nabla_\theta \log \pi_\theta(y_q \mid x_q) \right\|^2 + \mathcal{O}(\eta^2).
+\end{equation}
+
+Summing over $q$:
+\begin{align}
+\label{eq:deltaR_guide_1} \mathbb{E}[\Delta \mathcal{R}_{\text{Guide}}] &= \sum_{q \in U} \mathbb{E}[p_q(\theta_{t+1}) - p_q(\theta_t)] \\
+\label{eq:deltaR_guide_2} &= \eta \sum_{q \in U} p_q \left[ A_q + (1 - p_q)^k \mathbb{E}[\tilde A_q] \right] \left\| \nabla_\theta \log \pi_\theta(y_q \mid x_q) \right\|^2 + \mathcal{O}(\eta^2).
+\end{align}
+
+Compare to vanilla:
+\begin{equation}
+\label{eq:deltaR_vanilla_expectation}
+\mathbb{E}[\Delta \mathcal{R}_{\text{Vanilla}}] = \eta \sum_{q \in U} A_q\, p_q \left\| \nabla_\theta \log \pi_\theta(y_q \mid x_q) \right\|^2 + \mathcal{O}(\eta^2).
+\end{equation}
+
+As long as $\mathbb{E}_{q \in U} \left[\, \mathbb{E}_{y \sim \pi_\theta(\cdot \mid \tilde{x}_q)} \left[\, \tilde{A}_q(y;\, G_q) \,\right] \,\right] > 0$, the guide update yields a greater gain.
+\end{proof}
+
+\paragraph{Interpretation} Guide enables gradient updates on prompts where \emph{all} plain rollouts
+fail, scaling its advantage by $(1-p_q)^k$.  
+Its relative gain over vanilla GRPO is therefore proportional to
+\begin{equation}
+\label{eq:interpret_gain}
+(1 - p_q)^k  \mathbb{E}_{y \sim \pi_\theta(\cdot \mid \tilde{x}_q)}\left[\tilde A_q(y;\, G_q)\right]  p_q,
+\end{equation}
+which increases when
+\begin{itemize}
+  \item \emph{failure probability} $(1-p_q)^k$ is large (hard prompts),
+\item \emph{guided advantage} $\mathbb{E}_{y \sim \pi_\theta(\cdot \mid \tilde{x}_q)}[\tilde A_q(y; G_q)]$ is large on average relative to the full rollout group,
+  \item the baseline success probability $p_q$ is non-zero (so credit
+        can propagate).
+\end{itemize}
+
+\section{Effective vs Absolute Capability Gain}
+\label{app:abs_cap_gain}
+We can set $k$ equal to the number of rollouts per problem used during training, which we call \textit{effective} capability gain, or to the convergence of pass@$k$ curves where each additional sample provides a relative pass@$k$ improvement below some threshold $\epsilon$, which we define as \textit{absolute} % or theoretical?
+ capability gain.
+
+ % maybe don't need this:
+\noindent Let \(k_{\mathrm{eff}}\) be the number of rollouts per problem used in RLVR \textit{training}.  We define the {\bf effective capability gain} as
+\begin{equation}
+\mathcal{G}_{\mathrm{eff}}
+\;=\;
+\sum_{i\in U}
+\mathbb{I}\Bigl[\,
+\forall\,\hat y\in\mathcal Y_i^{(k_{\mathrm{train}})}:\,\hat y\neq y_i
+\;\wedge\;\hat y_i^{\pi_{\mathrm{RL}}}=y_i
+\Bigr].
+\end{equation}
+
+\noindent In contrast, we can define absolute capability gain. Let
+\[
+k_{\mathrm{abs}}
+\;=\;
+\min\Bigl\{\,k : \tfrac{\mathrm{pass}@k - \mathrm{pass}@{(k-1)}}{\mathrm{pass}@{(k-1)}} < \epsilon\Bigr\}
+\]
+be the smallest sample size at which additional rollouts yield $< \epsilon$ relative improvement.  Then the {\bf absolute capability gain} is
+\begin{equation}
+\mathcal{G}_{\mathrm{abs}}
+\;=\;
+\sum_{i\in U}
+\mathbb{I}\Bigl[\,
+\forall\,\hat y\in\mathcal Y_i^{(k_{\mathrm{abs}})}:\,\hat y\neq y_i
+\;\wedge\;\hat y_i^{\pi_{\mathrm{RL}}}=y_i
+\Bigr].
+\end{equation}
+
+\section{Training Dynamics}
+\label{appsec:training_dynamics}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\linewidth]{plots/training_dynamics.pdf}
+    \caption{Comparison of train-time rewards under different policy loss computation when training with guided trajectories. The most stable training setup is when the importance weight is considered relative to the sampling distribution (prompt + guidance in context) and the typical ppo clip in the probability ratios is removed.}
+    \label{fig:training-dynamics}
+\end{figure}
+
+\newpage
+
+\section{Guided Trajectory Policy Reshaping}
+\label{app:policy_reshape}
+
+Inspired by Yan et al.~\cite{yan2025luffy}, we introduce a \emph{policy-reshaping factor} that re-weights gradient contributions from off-policy (guided) samples, with the goal of amplifying learning signals from low-probability tokens in guided rollouts.  
+
+Let $w_i$ be the importance-weight ratio (as defined in Equation \ref{eq:J_guide}) for token $i$ in a guided trajectory $\mathbf{x}$, and let $\mathbf{w}=\{w_1,\dots,w_{|\mathbf{x}|}\}$.  While Yan et al.\ apply the static transform $f(x)=1/(1+x)$, we propose an \textbf{adaptive} alternative:
+
+\[
+f(w_i)\;=\;\frac{1}{P_{90}(\mathbf{w}) + w_i},
+\]
+
+where $P_{90}(\mathbf{w})$ denotes the 90th percentile of the ratios in $\mathbf{w}$.  This normalisation boosts the relative contribution of tokens whose ratios fall below the percentile threshold, while tempering the influence of outliers with extremely large ratios.  Because $P_{90}(\mathbf{w})$ is recomputed for every rollout, the reshaping adapts automatically to changes in the distributional gap between guided and unguided sampling throughout training. We experimented with 70, 80, and 90th percentiles and found that 90th percentile led to the best performance.
+
+Preliminary experiments show modest but consistent gains on our validation benchmarks.  Nevertheless, a systematic ablation (e.g. exploring different percentile thresholds or coupling the factor with temperature-scaled guidance) remains future work.  We therefore present these results here in the Appendix for completeness rather than as a conclusive endorsement of the method.
+
+
+\section{Full Performance Results}
+
+\begin{table}[H]
+    \caption{Pass@1 with greedy decoding and Pass@16 with temperature 1.0 performance with 95\% confidence intervals. The CI for pass@1 is captured from 5 indepedent runs and the CI for pass@16 is captured from the variance of the 16 samples per prompt.}
+    \centering
+    \small
+    \setlength{\tabcolsep}{10pt}
+    \renewcommand{\arraystretch}{1.15}
+    \scalebox{0.85}{
+    \begin{tabular}{llccccc}
+        \toprule
+        \textbf{Dataset} & \textbf{Metric} & \textbf{Guide-GRPO} & \textbf{Filter-GRPO} & \textbf{GRPO} & \textbf{SFT} &\textbf{Base} \\
+        \midrule
+
+        \multirow{2}{*}{MATH500}        & P@1  & 82.68 $\pm$ (0.10) & 80.80 $\pm$ (0.00) & 79.00 $\pm$ (0.00)  & 72.80 $\pm$ (0.00) & 68.80 $\pm$ (0.00) \\
+                                        & P@16 & 93.60 $\pm$ (0.54) & 92.60 $\pm$ (0.57) & 90.80 $\pm$ (0.63)  & 87.00 $\pm$ (0.74) & 89.60 $\pm$ (0.67) \\ \addlinespace[3pt]
+        \multirow{2}{*}{GSM8K}          & P@1  & 91.43 $\pm$ (0.12) & 91.84 $\pm$ (0.04) & 91.71 $\pm$ (0.04)  & 88.22 $\pm$ (0.06) & 83.21 $\pm$ (0.14) \\
+                                        & P@16 & 97.73 $\pm$ (0.20) & 96.59 $\pm$ (0.24) & 96.97 $\pm$ (0.23)  & 96.89 $\pm$ (0.23) & 97.19 $\pm$ (0.22) \\ \addlinespace[3pt]
+        \multirow{2}{*}{MINERVA}        & P@1  & 32.35 $\pm$ (0.14) & 30.51 $\pm$ (0.00) & 32.72 $\pm$ (0.00)  & 26.25 $\pm$ (0.18) & 26.47 $\pm$ (0.00)\\
+                                        & P@16 & 47.43 $\pm$ (1.48) & 43.75 $\pm$ (1.47) & 45.96 $\pm$ (1.48)  & 35.29 $\pm$ (1.42) & 43.01 $\pm$ (1.47) \\ \addlinespace[3pt]
+        \multirow{2}{*}{OLYMPIAD}       & P@1  & 43.11 $\pm$ (0.22) & 40.21 $\pm$ (0.12) & 39.56 $\pm$ (0.00)  & 35.05 $\pm$ (0.28) & 33.07 $\pm$ (0.11) \\
+                                        & P@16 & 64.59 $\pm$ (0.90) & 60.89 $\pm$ (0.92) & 61.33 $\pm$ (0.92)  & 50.52 $\pm$ (0.94) & 52.15 $\pm$ (0.94) \\ \addlinespace[3pt]
+        \multirow{2}{*}{AMC}            & P@1  & 63.61 $\pm$ (0.88) & 60.24 $\pm$ (0.00) & 62.41 $\pm$ (0.47)  & 50.36 $\pm$ (0.88) & 47.47 $\pm$ (0.58) \\
+                                        & P@16 & 84.34 $\pm$ (1.95) & 84.34 $\pm$ (1.95) & 84.34 $\pm$ (1.95)  & 69.88 $\pm$ (2.47) & 78.31 $\pm$ (2.22) \\ \addlinespace[3pt]
+        \multirow{2}{*}{AIME 24}        & P@1  & 30.67 $\pm$ (1.31) & 18.67 $\pm$ (1.60) & 26.67 $\pm$ (0.00)  & 11.33 $\pm$ (3.92) & 6.67  $\pm$ (0.00) \\
+                                        & P@16 & 56.67 $\pm$ (4.43) & 53.33 $\pm$ (4.46) & 60.00 $\pm$ (4.38)  & 23.33 $\pm$ (3.78) & 33.33 $\pm$ (4.22) \\ \addlinespace[3pt]
+        \multirow{2}{*}{AIME 25}        & P@1  & 13.33 $\pm$ (0.00) & 13.33 $\pm$ (0.00) & 13.33 $\pm$ (0.00)  & 6.67 $\pm$ (0.00) & 3.33  $\pm$ (0.00) \\
+                                        & P@16 & 46.67 $\pm$ (4.46) & 33.33 $\pm$ (4.22) & 30.00 $\pm$ (4.10)  & 13.33 $\pm$ (3.04) & 13.33 $\pm$ (3.04) \\ 
+        \midrule
+         \midrule
+         \multirow{2}{*}{Macro Avg.}     & P@1  & 51.03 $\pm$ (0.40) & 47.94 $\pm$ (0.25) & 49.34 $\pm$ (0.07)  & 40.42 $\pm$ (0.83) & 38.43 $\pm$ (0.12)  \\
+                                         & P@16 & 70.15 $\pm$ (2.00) & 66.40 $\pm$ (1.98) & 67.06 $\pm$ (1.96)
+  &  53.75 $\pm$ (1.80) & 58.13 $\pm$ (1.83)  \\ \addlinespace[3pt]
+         \multirow{2}{*}{Micro Avg.}     & P@1  & 70.66 $\pm$ (0.00) & 69.76 $\pm$ (0.00) & 69.59 $\pm$ (0.00)
+  &  63.80 $\pm$ (0.00) & 61.16 $\pm$ (0.00)  \\
+                                         & P@16 & 83.29 $\pm$ (0.34) & 81.23 $\pm$ (0.35) & 81.44 $\pm$ (0.35)
+  &  76.28 $\pm$ (0.39) & 78.31 $\pm$ (0.37)  \\
+        \bottomrule
+    \end{tabular}
+    }
+    \label{app:main_results_full}
+\end{table}
+
+\begin{table}[H]
+    \centering
+    \caption{Pass@1 with greedy decoding and Pass@16 with temperature 1.0 performance with 95\% confidence intervals. The CI for pass@1 is captured from 5 indepedent runs and the CI for pass@16 is captured from the variance of the 16 samples per prompt.}
+    \scalebox{0.9}{
+    \begin{tabular}{llcccc}
+    \toprule
+    \textbf{Benchmark} & \textbf{Metric} & \textbf{Guide-32B-8K} & \textbf{GRPO-32B-8K} & \textbf{Guide-7B-8K} & \textbf{GRPO-7B-8K}  \\
+    \midrule
+    \multirow{2}{*}{MATH500}     & P@1  & \textbf{85.08} $\pm$ (0.20) & 84.00          $\pm$ (0.12) & 83.08 $\pm$ (0.16) & 79.96 $\pm$ (0.08) \\
+                                 & P@16 & 94.80          $\pm$ (0.49) & \textbf{95.20} $\pm$ (0.47) & 94.60 $\pm$ (0.50) & 94.40 $\pm$ (0.50) \\ \addlinespace[3pt]
+    \multirow{2}{*}{GSM8K}       & P@1  & \textbf{95.60} $\pm$ (0.05) & 95.60          $\pm$ (0.00) & 92.25 $\pm$ (0.06) & 91.46 $\pm$ (0.04) \\
+                                 & P@16 & \textbf{98.03} $\pm$ (0.19) & 97.88          $\pm$ (0.19) & 97.80 $\pm$ (0.20) & 98.18 $\pm$ (0.18) \\ \addlinespace[3pt]
+    \multirow{2}{*}{MINERVA}     & P@1  & \textbf{35.59} $\pm$ (0.18) & 35.51          $\pm$ (0.18) & 29.41 $\pm$ (0.00) & 30.15 $\pm$ (0.00) \\
+                                 & P@16 & \textbf{50.00} $\pm$ (1.49) & 49.63          $\pm$ (1.49) & 49.26 $\pm$ (1.49) & 48.53 $\pm$ (1.48) \\ \addlinespace[3pt]
+    \multirow{2}{*}{OLYMPIAD}    & P@1  & \textbf{54.52} $\pm$ (0.44) & 48.06          $\pm$ (0.07) & 43.67 $\pm$ (0.17) & 42.37 $\pm$ (0.22) \\
+                                 & P@16 & \textbf{71.11} $\pm$ (0.85) & 68.89          $\pm$ (0.87) & 66.37 $\pm$ (0.89) & 65.33 $\pm$ (0.90) \\ \addlinespace[3pt]
+    \multirow{2}{*}{AMC}         & P@1  & \textbf{65.06} $\pm$ (0.88) & 63.61          $\pm$ (0.75) & 62.65 $\pm$ (0.00) & 53.73 $\pm$ (0.58) \\
+                                 & P@16 & \textbf{87.95} $\pm$ (1.75) & \textbf{87.95} $\pm$ (1.75) & 90.36 $\pm$ (1.59) & 89.16 $\pm$ (1.67) \\ \addlinespace[3pt]
+    \multirow{2}{*}{AIME 24}     & P@1  & \textbf{32.67} $\pm$ (1.31) & 20.00          $\pm$ (0.00) & 16.67 $\pm$ (0.00) & 26.67 $\pm$ (0.00) \\
+                                 & P@16 & \textbf{66.67} $\pm$ (4.38) & 60.00          $\pm$ (4.22) & 63.33 $\pm$ (4.31) & 53.33 $\pm$ (4.46) \\ \addlinespace[3pt]
+    \multirow{2}{*}{AIME 25}     & P@1  & \textbf{25.33} $\pm$ (3.33) & 23.33          $\pm$ (0.00) & 19.33 $\pm$ (1.31) & 20.67 $\pm$ (1.31) \\
+                                 & P@16 & \textbf{50.00} $\pm$ (4.43) & 43.33          $\pm$ (4.43) & 43.33 $\pm$ (4.43) & 30.00 $\pm$ (4.10) \\ \midrule
+    \multirow{2}{*}{Macro Avg.}  & P@1  & \textbf{56.26} $\pm$ (0.91) & 52.87          $\pm$ (0.16) & 49.58 $\pm$ (0.24) & 49.29 $\pm$ (0.32) \\ \addlinespace[3pt]
+                                 & P@16 & \textbf{74.08} $\pm$ (1.94) & 71.84          $\pm$ (1.92) & 72.15 $\pm$ (1.91) & 68.42 $\pm$ (1.90) \\ \addlinespace[3pt]
+    \multirow{2}{*}{Micro Avg.}  & P@1  & \textbf{76.36} $\pm$ (0.00) & 74.47          $\pm$ (0.00) & 71.15 $\pm$ (0.00) & 69.89 $\pm$ (0.00) \\
+                                 & P@16 & \textbf{85.63} $\pm$ (0.32) & 84.94          $\pm$ (0.32) & 84.29 $\pm$ (0.33) & 83.84 $\pm$ (0.33) \\
+    \bottomrule
+    \end{tabular}
+    }
+    \label{app:main_results_full_large}
+\end{table}
+
+\section{Guidance Generation}
+\label{app:guidance_generation}
+
+To generate prompt-specific guidance, we used the prompt below at temperature 0 with GPT-4o.
+
+\begin{Verbatim}[breaklines=true]
+'''
+You are an expert math tutor with years of experience helping students understand difficult concepts without solving problems for them. Your task is to analyze a math problem and its reference solution, then create a series of helpful hints that guide the student toward discovering the solution independently.
+
+[question]: {question}
+
+[reference_answer]: {reference_answer}
+
+When creating hints, follow these principles:
+- Start with conceptual hints that point to relevant mathematical principles
+- Progress to more specific strategic hints about approach
+- Offer guidance on potential roadblocks without revealing key steps
+- Never provide direct calculations or formulas that would bypass the student's own reasoning
+- Include 3-5 hints in ascending order of directness
+
+[guidance]: 
+1. [Conceptual hint focusing on relevant mathematical principles]
+2. [Strategic hint about approach without revealing steps]
+3. [Hint addressing common misconception or roadblock]
+4. [More direct hint if needed]
+5. [Final hint that guides toward the solution method without providing it]
+'''
+\end{Verbatim}
+
+The following are some examples on the guidance generated using the prompt above: 
+
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{|p{0.95\linewidth}|}
+\hline
+\vspace{1mm}
+\textbf{Example A: (Algebra)}\\[-0.4em]
+\begin{Verbatim}[fontsize=\scriptsize, breaklines=true]
+User: Find $\\frac{a^{12}-4096}{64 a^{6}}$, if $\\frac{a^{2}}{4}-\\frac{4}{a^{2}}=3$.
+
+A hint to the problem is provided below:
+
+[HINT_START]
+1. Notice that the given condition and the expression both involve terms of the form a² and its reciprocal. Think about how the identity (a²/4) - (4/a²) might be used as a building block for factoring the larger expression. 
+2. Consider rewriting the numerator in a way that reveals a common factor with the given condition. Ask yourself if a difference of powers or a recognizable factorization pattern might help connect the two parts of the expression. 
+3. It might be useful to make a substitution, such as letting x = a²/4, to help simplify both the given equation and the overall expression. How can this substitution simplify the structure of the problem? 
+4. Once you have expressed the terms in a unified form using your substitution, think about how to factor or combine terms so that the given condition naturally appears in the algebraic manipulation. 
+5. Finally, reflect on any familiar algebraic identities or factorizations you know that involve higher powers; these might help you write the expression in a form that can be directly evaluated using the given value. Use these observations to guide your step-by-step approach toward the final simplified result.
+[HINT_END]
+\end{Verbatim}
+\\ \hline
+\vspace{1mm}
+\textbf{Example B: (Geometry)}\\[-0.4em]
+\begin{Verbatim}[fontsize=\scriptsize, breaklines=true]
+User:  The area of a new playground is square and measures $1600 \\mathrm{~m}^{2}$. How long is one side of the playground? How many meters of fence are needed for three sides?
+
+A hint to the problem is provided below:
+
+[HINT_START]
+1. Think about what it means for a shape to be a square, and how its area relates to the length of one of its sides.
+2. Consider how you might determine the side length from the given area without directly calculating it—what operation relates area and side length for a square?
+3. Once you have an idea for finding the side length, think about how you would compute the total length of fence needed for three sides of a square playground. What does that imply about multiplying the side length?
+4. Be cautious about mixing up the operations needed to go from area to side length and then to the fence perimeter. Ensure each step follows from the properties of a square.
+5. Finally, try to translate the relationships into a step-by-step approach that first finds the side of the square and then uses that to calculate the overall fence length for three of its sides.
+[HINT_END]
+\end{Verbatim}
+\\ \hline
+\end{tabular}
+\caption{Two sample hint blocks produced by our pipeline.}
+\label{tab:hint_examples}
+\end{table}
+
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{|p{0.95\linewidth}|}
+\hline
+\textbf{Example C: Effect of Hints on Model Reasoning}\\
+\hline
+
+\textbf{(1) Question (no hints)}\\[-0.2em]
+\begin{Verbatim}[fontsize=\scriptsize,breaklines=true]
+In the right-angled triangle $ABC$, the lengths of the legs $AC=3$ and $BC=4$. Point $A$ was moved to point $A_{1}$ parallel to $BC$, then point $B$ was moved to point $B_{1}$ parallel to $A_{1}C$, and finally, point $C$ was moved to point $C_{1}$ parallel to $A_{1}B_{1}$, such that the resulting triangle $A_{1}B_{1}C_{1}$ is right-angled at $B_{1}$, and the length of the leg $A_{1}B_{1}$ is 1 unit. What is the length of the leg $B_{1}C_{1}$?'
+\end{Verbatim}
+\\ \hline
+\textbf{(2) Model response without hints (incorrect)}\\[-0.2em]
+\begin{Verbatim}[fontsize=\scriptsize,breaklines=true]
+To solve this problem, we need to understand the geometric transformations and the properties of the right-angled triangles involved. Let's break down the problem step-by-step.\n\n1. **Initial Triangle \\(ABC\\)**:\n   - \\(AC = 3\\)\n   - \\(BC = 4\\)\n   - \\(AB = \\sqrt{AC^2 + BC^2} = \\sqrt{3^2 + 4^2} = 5\\)\n\n2. **Transformation of Points**:\n   - Point \\(A\\) is moved to \\(A_1\\) parallel to \\(BC\\).\n   - Point \\(B\\) is moved to \\(B_1\\) parallel to \\(A_1C\\).\n   - Point \\(C\\) is moved to \\(C_1\\) parallel to \\(A_1B_1\\).\n\n3. **Resulting Triangle \\(A_1B_1C_1\\)**:\n   - The triangle \\(A_1B_1C_1\\) is right-angled at \\(B_1\\).\n   - The length of the leg \\(A_1B_1 = 1\\).\n\n\hl{Since the points are moved parallel to the sides of the triangle, the resulting triangle} \\(A_1B_1C_1\\) is similar to the original triangle \\(ABC\\). The ratio of the corresponding sides of the triangles will be the same.\n\nLet's denote the length of the leg \\(B_1C_1\\) as \\(x\\). Since the triangles are similar, the ratio of the corresponding sides will be the same. The ratio of the sides of the triangles \\(A_1B_1C_1\\) and \\(ABC\\) is \\(1/5\\).\n\nSo, the length of the leg \\(B_1C_1\\) will be \\(4 \\times (1/5) = 4/5\\).\n\nLet's confirm this with Python and sympy.\n\n```python\nimport sympy as sp\n\n# Given lengths of the original triangle\nAC = 3\nBC = 4\nAB = sp.sqrt(AC**2 + BC**2)\n\n# The length of the leg A1B1 is given as 1\nA1B1 = 1\n\n# The ratio of the sides of the similar triangles\nratio = A1B1 / AB\n\n# The length of the leg B1C1\nB1C1 = BC * ratio\n\nprint(B1C1)\n```\n```output\n4/5\n```\nThe length of the leg \\(B_1C_1\\) in the resulting triangle \\(A_1B_1C_1\\) is \\(\\boxed{\\frac{4}{5}}\\).
+\end{Verbatim}
+\\ \hline
+\textbf{(3) Question (with hints)}\\[-0.2em]
+\begin{Verbatim}[fontsize=\scriptsize,breaklines=true]
+In the right-angled triangle $ABC$, the lengths of the legs $AC=3$ and $BC=4$. Point $A$ was moved to point $A_{1}$ parallel to $BC$, then point $B$ was moved to point $B_{1}$ parallel to $A_{1}C$, and finally, point $C$ was moved to point $C_{1}$ parallel to $A_{1}B_{1}$, such that the resulting triangle $A_{1}B_{1}C_{1}$ is right-angled at $B_{1}$, and the length of the leg $A_{1}B_{1}$ is 1 unit. What is the length of the leg $B_{1}C_{1}$? A hint to the problem is provided below: [HINT_START] 1. Consider that moving points along lines parallel to a side of a triangle does not change the distance (or altitude) from that side, so the area remains constant from the original triangle to the resulting triangle. 2. Remember that for a right triangle the area can be found using half the product of its two legs. With one leg given as 1, think about how you can relate this familiar formula to the unchanged area of the triangle. 3. A common pitfall is to assume that moving the points alters side ratios or angle measures aside from the given right angle; keep in mind that the key is the invariant area. 4. Now, equate the area expressed in the original triangle with that expressed in the new right triangle, and set up an equation that will allow you to solve for the unknown leg length without doing detailed arithmetic. 5. Finally, confirm that the relationship you’ve set up is consistent with how translation preserves distances from the parallel lines—this should guide you to finding the missing leg length. [HINT_END] Consider the hint but start your solution from scratch and do not directly reference the hint (e.g. avoid phrases like "using the hint").
+\end{Verbatim}
+\\ \hline
+\textbf{(4) Model response with hints (correct)}\\[-0.2em]
+\begin{Verbatim}[fontsize=\scriptsize,breaklines=true]
+To solve this problem, we need to use the fact that the area of the triangle remains constant before and after the movements of the points. Let's break down the problem step-by-step:\n\n1. **Initial Triangle \(ABC\)**:\n - \(AC = 3\)\n - \(BC = 4\)\n - The area of triangle \(ABC\) is \(\frac{1}{2} \times AC \times BC = \frac{1}{2} \times 3 \times 4 = 6\).\n\n2. **Final Triangle \(A_1B_1C_1\)**:\n - \(A_1B_1 = 1\)\n - Let \(B_1C_1 = x\)\n - The area of triangle \(A_1B_1C_1\) is \(\frac{1}{2} \times A_1B_1 \times B_1C_1 = \frac{1}{2} \times 1 \times x = \frac{x}{2}\).\n\nSince the area remains constant, we have:\n\[\n6 = \frac{x}{2}\n\]\nSolving for \(x\), we get:\n\[\nx = 12\n\]\n\nSo, the length of the leg \(B_1C_1\) is \(12\).\n\nLet's confirm this with Python code to ensure the result is accurate.\n```python\n# Given values for the initial triangle ABC\nAC = 3\nBC = 4\n\n# Calculate the area of the initial triangle ABC\narea_ABC = 0.5 * AC * BC\n\n# Given value for the final triangle A1B1C1\nA1B1 = 1\n\n# Let B1C1 be x\n# The area of the final triangle A1B1C1 is 0.5 * A1B1 * B1C1\n# Since the area remains constant, we have:\n# area_ABC = 0.5 * A1B1 * B1C1\n# 6 = 0.5 * 1 * x\n# x = 12\n\n# Calculate the length of B1C1\nB1C1 = 2 * area_ABC / A1B1\nprint(B1C1)\n```\n```output\n12.0\n```\nThe length of the leg \(B_1C_1\) is \(\boxed{12}\).
+\end{Verbatim}
+\\ \hline
+\end{tabular}
+\vspace{2mm}
+\caption{Example where the model’s initial solution (without hints) is incorrect; after receiving guidance, the model corrects its reasoning and produces the right answer. Without guidance, the model incorrectly assumes that the three parallel translations produce complete triangle similarity, adopts a side-length ratio of \(1{:}5\), and consequently predicts \(B_{1}C_{1}=4\times\frac15=\tfrac45\). After the area-invariance hint is provided, the model abandons this similarity shortcut, equates the original area \(\tfrac12\!\cdot\!3\!\cdot\!4=6\) with the area of the translated right triangle \(\tfrac12\!\cdot\!1\!\cdot\!x\), and correctly derives \(x=B_{1}C_{1}=12\). This example shows how a concise, domain-specific hint can redirect the model’s reasoning and correct a systematic geometric error.}
+\label{tab:model_transcript_with_hints}
+\end{table}
+
+\section{Training Details: Reinforcement Learning with Verifiable Rewards (RLVR) Training }
+\label{app:rlvr_training_details}
+Prior to RLVR training, we perform one epoch of supervised fine-tuning (SFT) using the AMPS dataset \cite{math500} on all Qwen 2.5 base models \cite{model:Qwen25} to ensure that the models produce reasoning-formatted outputs. The prompt used for both RLVR and SFT is shown below:
+
+\begin{Verbatim}[breaklines=true]
+'''
+A conversation between user and assistant. 
+The user asks a question, and the assistant solves it. 
+The assistant first thinks about the reasoning process in the mind and then provides the user with the answer. 
+The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>. 
+
+User: {{question}}
+
+Assistant: 
+'''
+\end{Verbatim}
+
+For RLVR, we gathered the publicly available verifiable rewards dataset into three broad splits. 
+\begin{table}[H]
+\caption{Training dataset composition for RLVR}
+\centering
+\begin{tabular}{l r}
+\toprule
+\textbf{Dataset} & \textbf{Number of Examples} \\
+\midrule
+Math   & 450,000 \\
+Code   &  25,276 \\
+STEM   &  38,958 \\
+\midrule
+Total  & 514,234 \\
+\bottomrule
+\end{tabular}
+\vspace{0.3em}
+\label{table:rlvr-dataset-stats}
+\end{table}
+
+For training, we used the following hyperparameters when running the open-source VeRL \cite{verl} package with GRPO:
+
+\begin{table}[H]
+\caption{Hyper-parameters for GRPO training}
+\centering
+% \resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccccccc}
+\toprule
+{hyperparameter and settings} & {value} \\
+\midrule
+train batch size & 1024 \\
+ppo mini batch & 512 \\
+number rollouts per prompt & 8 \\
+training steps & 256 \\
+actor learning rate & 1e-6 \\
+kl coeff & 0 \\
+entropy coeff & 0 \\
+prompt max length & 1024 \\
+generation max length & 3072 \\
+policy model temperature & 1 \\
+optimizer & Adam \\
+\bottomrule
+\end{tabular}
+\vspace{0.3em}
+\label{table:rlvr-grpo-hyperparameters}
+\end{table}
+
+For SFT, we used the following hyperparameters, 
+\begin{table}[H]
+\caption{Hyper-parameters for SFT training}
+\centering
+% \resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccccccc}
+\toprule
+{hyperparameter and settings} & {value} \\
+\midrule
+train batch size & 32 \\
+training epochs & 1 \\
+actor learning rate & 1e-5 \\
+max context length & 4092 \\
+optimizer & Adam \\
+\bottomrule
+\end{tabular}
+\vspace{0.3em}
+\label{table:rlvr-sft-hyperparameters}
+\end{table}
+
+\section{Guide-GRPO towards Mathematical Reasoning Details}
+\label{app:guide-exp}
+
+In this appendix, we discuss further experimental details for our results in \ref{sec:guide-exp}.
+
+\subsection{Guidance Pass@K on Training Data} 
+
+\paragraph{Dataset and Model Details} For the evaluation, we randomly sample 10k samples from OpenR1-Math-220k \cite{openr1} train subset and use the Qwen-2.5-Math-7B trained by \cite{yan2025luffy} for running inference. For these prompts we generate guidance using reference solution by using the prompt described in Appendix \ref{app:guidance_generation}. 
+
+\paragraph{Capability Gain and Distillation} We compute the capability gain (C) and distillation set (D) from the model rollouts without guidance using the strategy described in Section \ref{sec:rlvr_sd}. For each set, we then measure pass @ k for the guided and non-guided model with samples generated with temperature 1.0. We see that the model with guidance can solve more unsolvable questions in comparsion to the non guided model and the number of questions also increases with rising k. Similarly, the guided model also shows significantly higher pass @ 1 with a rising trend with increasing k.
+
+
+
+\subsection{GRPO and SFT Training}
+
+\paragraph{Training Data} For the training data, we use the default subset of OpenR1-Math-220k, which contains 93.7K math reasoning tasks that have been sourced for several math competitions, textbooks and online forums. We use the prompt, the final answer, and the reference solution, which is the solution that is scraped from the corresponding source, not the llm-generated solution. In order to format the training data, we leverage the system prompt used by Yan et al. that encourages the model to first think through the problem and then provide an answer in boxed format \cite{yan2025luffy}:
+
+\begin{Verbatim}[breaklines=true]
+Your task is to follow a systematic, thorough reasoning process before providing the final solution. This involves analyzing, summarizing, exploring, reassessing, and refining your thought process through multiple iterations. Structure your response into two sections: Thought and Solution. In the Thought section, present your reasoning using the format: \"<think>\n {thoughts} </think>\n\". Each thought should include detailed analysis, brainstorming, verification, and refinement of ideas. After \"</think>\n,\" in the Solution section, provide the final, logical, and accurate answer, clearly derived from the exploration in the Thought section. If applicable, include the answer in \\boxed{} for closed-form results like multiple choices or mathematical solutions.
+\end{Verbatim}
+
+Using this system prompt, we simply apply the chat template with the user prompt to formulate the training prompt for GRPO training. 
+
+\paragraph{Training hyperparameter} \label{app:guide_training_details} Table \ref{table:grpo-hyperparameters} contains the common training hyper-parameter for training the policy models under vanilla GRPO and Guide-GRPO and Table \ref{table:sft-hyperparameters} contains the training hyper-parameters for the SFT training on reference solutions:
+
+\begin{table}[H]
+\centering
+% \resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccccccc}
+\toprule
+{hyperparameter and settings} & {value} \\
+\midrule
+train batch size & 1024 \\
+ppo mini batch & 512 \\
+number rollouts per prompt & 8 \\
+training epochs & 2 \\
+actor learning rate & 1e-6 \\
+kl coeff & 0 \\
+entropy coeff & 0 \\
+prompt max length & 1024 \\
+generation max length & 3072 \\
+policy model temperature & 1 \\
+optimizer & Adam \\
+\bottomrule
+\end{tabular}
+\vspace{0.3em}
+\caption{Hyper-parameters for GRPO training}
+\label{table:grpo-hyperparameters}
+\end{table}
+
+\begin{table}[H]
+\centering
+% \resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccccccc}
+\toprule
+{hyperparameter and settings} & {value} \\
+\midrule
+train batch size & 32 \\
+training epochs & 2 \\
+actor learning rate & 1e-5 \\
+max context length & 4092 \\
+optimizer & Adam \\
+\bottomrule
+\end{tabular}
+\vspace{0.3em}
+\caption{Hyper-parameters for SFT training}
+\label{table:sft-hyperparameters}
+\end{table}
+
+\paragraph{Training Setup} We fork the open-sourced VeRL \cite{verl} training package. We make the following modifications to the code for implementing Guide-GRPO:
+\begin{itemize}
+    \item Implement filtering of prompts for which all solution trajectories are all correct or all incorrect
+    \item Adjusted importance weighting to calculate log probabilities relative to prompt plus guidance 
+    \item Update the data-loaders to include the token ids for prompt with guidance
+    \item Dynamic re-rolls from prompt groups for which all trajectories are incorrect using prompt plus guidance in the context of the policy model
+\end{itemize}
+
+\paragraph{Compute} \label{compute} All GRPO model training used 2 nodes for a total of 16 gpus with 88 CPU cores, 80 Gi GPU memory and 1.5TB system memory per node. The total GRPO training time ranged between 36 to 48 hours. The SFT training was done on 1 node with training time of approximately 6 hours.
+
+
+% \input{neurips_checklist}
+
+\end{document}
