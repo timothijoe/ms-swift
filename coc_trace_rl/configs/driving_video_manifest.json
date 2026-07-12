@@ -1,0 +1,12 @@
+[
+  {
+    "name": "coc_trace_driving_train",
+    "path": "../../my_data/driving_video_style_32_template_v5_with_assistant_coc_schema.jsonl",
+    "split": "train"
+  },
+  {
+    "name": "coc_trace_driving_eval",
+    "path": "../../my_data/driving_video_style_32_template_v5_with_assistant_coc_schema.jsonl",
+    "split": "eval"
+  }
+]
