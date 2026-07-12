@@ -32,9 +32,11 @@ fi
   --coc_trace_enabled true \
   --coc_trace_reward_threshold "${COC_TRACE_REWARD_THRESHOLD:-0.8}" \
   --coc_trace_probability "${COC_TRACE_PROBABILITY:-0.3}" \
-  --coc_trace_num_generations "${COC_TRACE_NUM_GENERATIONS:-2}" \
+  --coc_trace_num_generations "${COC_TRACE_NUM_GENERATIONS:-3}" \
   --num_generations "${DRIVING_NUM_GENERATIONS:-4}" \
   --generation_batch_size "${DRIVING_GENERATION_BATCH_SIZE:-4}" \
+  --split_dataset_ratio "${DRIVING_SPLIT_RATIO:-0.25}" \
+  --eval_strategy steps \
   --output_dir "${PROJECT_ROOT}/output/COC_TRACE_GUIDED" \
   --max_length "${DRIVING_MAX_LENGTH:-1024}" \
   --max_completion_length "${DRIVING_MAX_COMPLETION_LENGTH:-1024}" \

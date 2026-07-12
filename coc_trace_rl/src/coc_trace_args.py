@@ -26,7 +26,7 @@ class CocTraceDrivingArguments(RLHFArguments):
             raise ValueError('coc_trace_reward_threshold must be in [0, 1]')
         if not 0.0 <= self.coc_trace_probability <= 1.0:
             raise ValueError('coc_trace_probability must be in [0, 1]')
-        if self.coc_trace_enabled and self.coc_trace_num_generations < 1:
-            raise ValueError('coc_trace_num_generations must be at least 1 when CoC Trace is enabled')
+        if self.coc_trace_enabled and self.coc_trace_num_generations < 3:
+            raise ValueError('coc_trace_num_generations must be at least 3 when CoC Trace is enabled')
         if len(self.coc_guidance_level_weights) != 3 or any(weight < 0 for weight in self.coc_guidance_level_weights):
             raise ValueError('coc_guidance_level_weights must contain three non-negative values')

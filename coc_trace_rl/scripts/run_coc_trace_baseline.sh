@@ -31,6 +31,8 @@ fi
   --coc_trace_enabled false \
   --num_generations "${DRIVING_NUM_GENERATIONS:-4}" \
   --generation_batch_size "${DRIVING_GENERATION_BATCH_SIZE:-4}" \
+  --split_dataset_ratio "${DRIVING_SPLIT_RATIO:-0.25}" \
+  --eval_strategy steps \
   --output_dir "${PROJECT_ROOT}/output/COC_TRACE_BASELINE" \
   --max_length "${DRIVING_MAX_LENGTH:-1024}" \
   --max_completion_length "${DRIVING_MAX_COMPLETION_LENGTH:-1024}" \
