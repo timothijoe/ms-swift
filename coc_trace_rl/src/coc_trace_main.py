@@ -67,6 +67,11 @@ class CocTraceDrivingRLHF(SwiftRLHF):
             eval_dataset=val_dataset,
             callbacks=self.callbacks,
             template=self.template,
+            coc_trace_enabled=self.args.coc_trace_enabled,
+            coc_trace_reward_threshold=self.args.coc_trace_reward_threshold,
+            coc_trace_probability=self.args.coc_trace_probability,
+            coc_trace_num_generations=self.args.coc_trace_num_generations,
+            coc_trace_seed=self.args.coc_trace_seed,
             **self._get_trainer_kwargs(),
         )
         return self.train(trainer)

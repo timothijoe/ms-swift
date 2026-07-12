@@ -1,132 +1,180 @@
 # CoC Trace Driving GRPO
 
-This directory contains the first implementation of schema-driven CoC Trace guided GRPO for driving decisions. It is intentionally isolated from the generic `ms-swift` trainer: the original `swift/trainers/rlhf_trainer/grpo_trainer.py` and the global trainer factory are not modified.
+Schema-driven Chain-of-Cognition Trace guided GRPO for autonomous driving decision-making.
 
 ## Research Objective
 
-Ordinary GRPO can fail to learn from driving prompts when all sampled completions have weak reasoning. This experiment uses a reference CoC Trace only during training-time exploration:
+Ordinary GRPO can fail to learn from driving prompts when all sampled completions have weak reasoning. This experiment uses a reference CoC Trace **only during training-time exploration**:
 
 1. Generate ordinary rollouts from the original driving prompt.
-2. Score each ordinary rollout's `<think>` content against a persisted reference CoC schema.
+2. Score each ordinary rollout's ` thinking` content against a persisted reference CoC schema.
 3. When the group reasoning score is low, probabilistically create several guided prompts.
-4. Generate additional guided rollouts.
-5. Restore the original, unguided prompt before policy optimization.
+4. Generate additional guided rollouts (or reuse existing completions with guidance-injected prompts).
+5. Replace the worst ordinary rollouts with guided rollouts, then compute advantages.
 
-The trained policy is therefore optimized for the original prompt, not for a prompt containing a reference trace.
+The trained policy is optimized for the **original unguided prompt** — CoC guidance is an exploration mechanism only.
 
-## Decisions Made During Design
+## Design Decisions
 
-- `think` is the reference CoC Trace.
-- A standalone `coc_trace_reward` measures reasoning-schema coverage. It is used for triggering and metrics, not as an advantage reward.
+- ` think` is the reference CoC Trace.
+- `coc_trace_score` reward measures reasoning-schema coverage. It is used **only for triggering** (weight = 0.0 in advantage computation).
 - A prompt group triggers only when all conditions hold:
-
-  ```text
+  ```
   coc_trace_enabled == true
-  max(coc_trace_reward for ordinary rollouts) < coc_trace_reward_threshold
+  max(coc_trace_score for ordinary rollouts) < coc_trace_reward_threshold
   deterministic_random(prompt_id, global_step, seed) < coc_trace_probability
   ```
-
-- Defaults are `coc_trace_reward_threshold=0.8` and `coc_trace_probability=0.3`.
-- Triggering does not depend on total task reward. A low total reward does not necessarily mean poor reasoning.
-- Each triggered group receives diverse guidance variants rather than repeated copies of one prompt.
+- Defaults: `coc_trace_reward_threshold=0.8`, `coc_trace_probability=0.3`.
+- Each triggered group receives diverse guidance variants (Level 1/2/3) rather than repeated copies of one prompt.
 - Guidance never contains final lateral or longitudinal decisions. It supplies task classification and reasoning checks only.
-- CoC Trace is enabled only when at least three guided rollouts are requested, one for each guidance level.
+- When triggered, the worst ordinary rollouts (by `coc_trace_score`) are **replaced** by guided rollouts, keeping total sample count = `num_generations` so the grouped advantage computation works correctly.
 
 ## Guidance Variants
 
-The reference trace is converted into a compact schema:
-
-```text
-task_category
-task_subcategory
-evidence: relative position, visibility, motion trend, timing, safety margin
-risk_causes
-constraints
-```
-
-The ordinary rollout traces are parsed into the same schema. Missing schema fields become guidance gaps.
-
 | Level | Purpose | Prompt content |
-| --- | --- | --- |
+|-------|---------|----------------|
 | 1 | Task locator | Task category and subcategory |
 | 2 | Reasoning frame | Task type plus missing evidence dimensions and causal checks |
 | 3 | Selective checklist | Three to five schema-relevant reasoning checks |
 
-For example, a blind-spot scenario can prompt the model to verify relative position, visibility limitations, and risk causality without telling it to brake or change lanes.
-
 ## Files
 
-```text
+```
 coc_trace_rl/
-  configs/driving_video_manifest.json       Dataset manifest
-  scripts/build_coc_trace_schema.py         Offline JSONL schema preparation
-  scripts/run_coc_trace_driving_grpo.sh      Training command
-  src/coc_trace_schema.py                   Schema parsing, score, guidance, trigger
-  src/driving_dataset.py                    JSONL and driving-row normalization
-  src/driving_rewards.py                    Decision accuracy and CoC rewards
-  src/driving_formal_rm.py                  Semantic Formal RM plugin
-  src/coc_trace_args.py                     Experiment-specific arguments
-  src/coc_trace_grpo_trainer.py             GRPO subclass with guided rollouts
-  src/coc_trace_main.py                     Manifest registration and trainer launch
+  __init__.py                               Package init
+  README.md                                 This file
+  configs/
+    driving_video_manifest.json             Dataset manifest
+  scripts/
+    build_coc_trace_schema.py               Offline JSONL schema preparation
+    run_coc_trace_baseline.sh               Training — CoC Trace disabled
+    run_coc_trace_guided.sh                 Training — CoC Trace enabled
+  src/
+    __init__.py                             Source init
+    coc_trace_args.py                       Experiment-specific arguments (CocTraceDrivingArguments)
+    coc_trace_main.py                       Manifest registration and trainer launch
+    coc_trace_grpo_trainer.py               GRPO subclass with guided rollout replacement
+    coc_trace_schema.py                     Schema parsing, scoring, guidance, trigger logic
+    driving_dataset.py                      JSONL and driving-row normalization
+    driving_rewards.py                      CocTraceScoreReward, DrivingDecisionAccuracyReward
+    driving_formal_rm.py                    Generative RM plugin for semantic driving scoring
 ```
 
-## Data Preparation
+## Quick Start
 
-The training JSONL must include a `think` field or an assistant response containing `<think>...</think>`. Before training, persist a reference schema for every row:
+### 1. Environment
 
 ```bash
-PYTHONPATH=. python coc_trace_rl/scripts/build_coc_trace_schema.py \
+conda activate sw_312_env
+export PYTHONPATH="${PWD}:${PYTHONPATH:-}"
+```
+
+### 2. Data Preparation
+
+The training JSONL must include a ` think` field or an assistant response containing ` thinking... response`. Before training, persist a reference schema for every row:
+
+```bash
+python coc_trace_rl/scripts/build_coc_trace_schema.py \
   path/to/driving.jsonl \
   my_data/driving_video_style_32_template_v5_with_assistant_coc_schema.jsonl
 ```
 
-Point `configs/driving_video_manifest.json` at the prepared file. The repository does not copy the reference repository's sample data; dataset paths are deliberately external to the implementation.
+Point `configs/driving_video_manifest.json` at the prepared file.
 
-## Rewards
+> A minimal 4-sample test dataset is already prepared at `my_data/driving_video_style_32_template_v5_with_assistant_coc_schema.jsonl`.
 
-The training reward is task-focused:
+### 3. Run Training
 
-```text
-0.5 * driving_decision_accuracy + 0.5 * driving_formal_rm
-```
-
-`coc_trace_score` has weight `0.0` in the GRPO objective. It compares the candidate `<think>` to the persisted `coc_trace_schema` and is used by `CocTraceGRPOTrainer` to decide whether to create guided samples.
-
-`driving_formal_rm` uses `DRIVING_RM_MODEL` as a generative judge. It receives the reference driving schema, target decision, and candidate completion, then emits a score in `[0, 1]`.
-
-## Run
+**Baseline** (CoC Trace disabled):
 
 ```bash
-cd /workspace/docker_mapping/swift_proj/zt-ms-swift
 DRIVING_RM_MODEL=Qwen/Qwen2.5-1.5B-Instruct \
-bash coc_trace_rl/scripts/run_coc_trace_driving_grpo.sh
+bash coc_trace_rl/scripts/run_coc_trace_baseline.sh
 ```
 
-Useful overrides:
+**Guided** (CoC Trace enabled):
+
+```bash
+DRIVING_RM_MODEL=Qwen/Qwen2.5-1.5B-Instruct \
+bash coc_trace_rl/scripts/run_coc_trace_guided.sh
+```
+
+**Useful overrides:**
 
 ```bash
 COC_TRACE_REWARD_THRESHOLD=0.7 \
 COC_TRACE_PROBABILITY=0.5 \
-COC_TRACE_NUM_GENERATIONS=3 \
-DRIVING_NUM_GENERATIONS=2 \
+COC_TRACE_NUM_GENERATIONS=2 \
+DRIVING_NUM_GENERATIONS=4 \
 DRIVING_RM_MODEL=Qwen/Qwen2.5-1.5B-Instruct \
-bash coc_trace_rl/scripts/run_coc_trace_driving_grpo.sh
+bash coc_trace_rl/scripts/run_coc_trace_guided.sh
 ```
 
-## Current Implementation Notes
+### 4. VSCode Debugging
 
-- `CocTraceGRPOTrainer` subclasses `GRPOTrainer`; generic trainer source files are untouched.
+Open the project in VSCode and select from the **Run and Debug** dropdown:
+
+| Configuration | Description |
+|---------------|-------------|
+| **CoC Trace Baseline** | Debug baseline (CoC disabled) |
+| **CoC Trace Guided** | Debug guided mode (prob=0.3) |
+| **CoC Trace Guided (Force Trigger)** | Debug guided mode with forced trigger (prob=1.0) |
+| **CoC Trace Schema — Unit Tests** | Run unit tests |
+| **CoC Trace — Prepare JSONL Schema** | Run data preprocessing |
+
+## Rewards
+
+| Reward | Weight | Source | Purpose |
+|--------|--------|--------|---------|
+| `driving_decision_accuracy` | 0.5 | Exact match of `横向决策`/`纵向决策` vs `gt_answer` | Task accuracy |
+| `coc_trace_score` | 0.0 | Schema coverage of ` thinking` vs persisted `coc_trace_schema` | Trigger only |
+| `driving_formal_rm` | 0.5 | Generative RM (`DRIVING_RM_MODEL`) scoring semantic agreement | Semantic quality |
+
+The `coc_trace_score` has weight **0.0** in the GRPO objective. It is used solely by `CocTraceGRPOTrainer` to decide whether to create guided samples.
+
+## Coc Trace Trigger Logic
+
+```
+def should_trigger_coc_trace(enabled, group_scores, threshold, probability,
+                              prompt_id, global_step, seed):
+    if not enabled or max(group_scores) >= threshold:
+        return False
+    draw = SHA256(f"{seed}:{global_step}:{prompt_id}") / 2^64
+    return draw < probability
+```
+
+The deterministic hash ensures reproducibility across runs with the same seed.
+
+## Coc Trace Guided Rollout Replacement
+
+When CoC is triggered for a prompt group:
+
+1. Parse each ordinary rollout's ` thinking` into a `TraceSchema`.
+2. Compare against the reference `TraceSchema` to identify gaps.
+3. Build up to `coc_trace_num_generations` guidance variants (Level 1/2/3).
+4. For each variant, inject guidance into the user message.
+5. Attach the best existing completion (no second inference call).
+6. Restore the plain prompt for scoring.
+7. Score the guided samples.
+8. Replace the worst ordinary samples (lowest `coc_trace_score`) with the guided samples.
+9. Compute group advantages on the final set (total = `num_generations`).
+
+## Tests
+
+```bash
+python -m pytest tests/coc_trace_rl/ -v
+```
+
+Tests cover:
+- Schema extraction and safe guidance (no action terms leaked)
+- Deterministic trigger logic (flag + threshold + probability)
+- JSONL preparation pipeline
+- CoC scoring (think vs persisted schema)
+- Decision accuracy scoring (both lateral and longitudinal)
+
+## Notes
+
+- `CocTraceGRPOTrainer` subclasses `GRPOTrainer` without modifying upstream source files.
 - When CoC is disabled, it delegates directly to the parent GRPO implementation.
-- When enabled, it generates ordinary samples, finds low-CoC groups, creates Level 1/2/3 guided inputs, generates those samples, restores each guided completion to the plain prompt, and then invokes the parent batch encoding and advantage machinery.
-- Ordinary and guided samples use the same `prompt_id` and distinct `request_id` values.
 - The implementation records `coc_trace/guided_rollouts` and `coc_trace/triggered_prompts` metrics.
-
-## Validation Status
-
-Focused tests cover schema extraction, safe guidance, deterministic trigger logic, JSONL preparation, CoC scoring, and decision scoring:
-
-```text
-5 passed: tests/coc_trace_rl
-```
-
-The full upstream GRPO test file requires a GPU BF16 environment, DeepSpeed, and vLLM settings. It cannot pass in the current CPU-only verification environment. Use a remote GPU development environment for real rollout and training debugging.
+- Requires a GPU with BF16 support and at least 24 GiB memory for the 2B policy + 1.5B reward model.
