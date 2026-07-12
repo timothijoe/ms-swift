@@ -104,7 +104,7 @@ bash coc_trace_rl/scripts/run_coc_trace_guided.sh
 ```bash
 COC_TRACE_REWARD_THRESHOLD=0.7 \
 COC_TRACE_PROBABILITY=0.5 \
-COC_TRACE_NUM_GENERATIONS=2 \
+COC_TRACE_NUM_GENERATIONS=3 \
 DRIVING_NUM_GENERATIONS=4 \
 DRIVING_RM_MODEL=Qwen/Qwen2.5-1.5B-Instruct \
 bash coc_trace_rl/scripts/run_coc_trace_guided.sh
@@ -153,11 +153,11 @@ When CoC is triggered for a prompt group:
 2. Compare against the reference `TraceSchema` to identify gaps.
 3. Build up to `coc_trace_num_generations` guidance variants (Level 1/2/3).
 4. For each variant, inject guidance into the user message.
-5. Attach the best existing completion (no second inference call).
-6. Restore the plain prompt for scoring.
+5. Generate a new completion under each guided prompt.
+6. Preserve the guided rollout logprobs, then restore the plain prompt for policy optimization.
 7. Score the guided samples.
-8. Replace the worst ordinary samples (lowest `coc_trace_score`) with the guided samples.
-9. Compute group advantages on the final set (total = `num_generations`).
+8. Replace the worst ordinary samples (lowest `coc_trace_score`) within the same prompt group.
+9. Compute request-aware group advantages on the final set (total = `num_generations`).
 
 ## Tests
 
@@ -178,3 +178,16 @@ Tests cover:
 - When CoC is disabled, it delegates directly to the parent GRPO implementation.
 - The implementation records `coc_trace/guided_rollouts` and `coc_trace/triggered_prompts` metrics.
 - Requires a GPU with BF16 support and at least 24 GiB memory for the 2B policy + 1.5B reward model.
+
+## Change Log
+
+### 2026-07-12: Guided Rollout Correctness Fix
+
+Commit: `f08a942d`
+
+- Replaced copied ordinary completions with real generation under each guided prompt.
+- Preserved guided rollout logprobs before restoring the plain prompt for optimization.
+- Computed trigger rewards locally and gathered them request-aware for multi-process advantage calculation.
+- Limited low-CoC replacement to each sample's original prompt group.
+- Restored the three-variant guidance default and removed train/eval JSONL duplication.
+- Added trainer regression tests for per-prompt replacement and three-level guided construction.
