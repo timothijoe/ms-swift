@@ -1,5 +1,7 @@
 # CoC Trace Driving GRPO
 
+> Current short conclusions and the cumulative project log are maintained in `../timothi_record/README.md` and `../timothi_record/log.md`.
+
 Schema-driven Chain-of-Cognition Trace guided GRPO for autonomous driving decision-making.
 
 ## Research Objective
